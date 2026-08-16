@@ -1404,6 +1404,9 @@ function openSync(){
         <button class="btn sm" onclick="navigator.clipboard.writeText($('fbRulesTa').value).then(()=>toast('복사했습니다'))">복사</button></div>
       <textarea id="fbRulesTa" rows="9" readonly style="font-size:11px;font-family:ui-monospace,monospace;margin-top:6px;background:#fafbfc">${esc(fbRules(c.allow||[]))}</textarea>
     </div>
+    ${c.config?`<div class="row" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)">
+      <button class="btn" onclick="inviteLink()">🔗 공동작업자 초대 링크 복사</button>
+      <span class="muted">이 링크로 들어가면 설정을 붙여넣을 필요 없이 바로 구글 로그인만 하면 됩니다.</span></div>`:''}
     ${fb.on?`<div class="row" style="margin-top:12px"><span class="pill a">연결됨</span><span class="muted">${esc(fb.user?.email||'')}</span>
       <button class="btn sm" onclick="fbSignOut()">로그아웃</button></div>`:''}
   </div><div class="foot">
@@ -1427,6 +1430,24 @@ function saveSync(){
   const room=($('fbRoom').value.trim()||'default').replace(/[\/\s]/g,'-');
   LS.set(KEYFB,JSON.stringify({config,allow,room}));
   closeModal();toast('연결 중…');initFB(true);
+}
+function inviteLink(){
+  const c=fbCred();if(!c?.config)return toast('먼저 「저장하고 연결」을 눌러 주세요');
+  const p=btoa(unescape(encodeURIComponent(JSON.stringify({config:c.config,room:c.room,allow:c.allow}))));
+  const url=location.origin+location.pathname+'#invite='+p;
+  (navigator.clipboard?navigator.clipboard.writeText(url):Promise.reject())
+    .then(()=>toast('초대 링크를 복사했습니다 — 공동작업자에게 보내세요'))
+    .catch(()=>prompt('아래 주소를 복사해 전달하세요',url));
+}
+function takeInvite(){
+  const m=location.hash.match(/^#invite=(.+)$/);if(!m)return false;
+  try{
+    const d=JSON.parse(decodeURIComponent(escape(atob(m[1]))));
+    if(!d.config?.apiKey)return false;
+    LS.set(KEYFB,JSON.stringify(d));
+    history.replaceState(null,'',location.pathname);
+    return true;
+  }catch(e){return false}
 }
 function syncState(t,cls){$('syncState').textContent=t;$('syncState').style.color=cls||'#b6c4d4'}
 function loadScript(src){return new Promise((ok,ng)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=ng;document.head.appendChild(s)})}
@@ -1478,14 +1499,23 @@ function subscribeCloud(room){
     const d=snap.data();
     if(!d.json||d.json===lastRemote)return;
     if(d.by===fb.user?.uid&&d.json===JSON.stringify(S))return;
-    lastRemote=d.json;
-    try{
-      const inc=JSON.parse(d.json);
-      if(JSON.stringify(S)===d.json)return;
-      fb.muted=true;S=migrate(inc);save(false);render();fb.muted=false;
-      if(d.by!==fb.user?.uid)toast('공동작업자의 변경사항을 불러왔습니다');
-    }catch(e){console.warn(e)}
+    // 입력 중이면 화면을 갈아엎지 않고 잠시 뒤 다시 시도합니다
+    const ae=document.activeElement;
+    if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)){clearTimeout(applyT);applyT=setTimeout(()=>applyRemote(d),4000);return}
+    applyRemote(d);
   },e=>{console.error(e);syncState('동기화 오류');toast('클라우드 읽기 실패 — Firestore 규칙의 허용 계정을 확인해 주세요')});
+}
+let applyT=null;
+function applyRemote(d){
+  const ae=document.activeElement;
+  if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)){clearTimeout(applyT);applyT=setTimeout(()=>applyRemote(d),4000);return}
+  lastRemote=d.json;
+  try{
+    if(JSON.stringify(S)===d.json)return;
+    const inc=JSON.parse(d.json);
+    fb.muted=true;S=migrate(inc);save(false);render();fb.muted=false;
+    if(d.by!==fb.user?.uid)toast('공동작업자의 변경사항을 불러왔습니다');
+  }catch(e){console.warn(e);fb.muted=false}
 }
 function pushCloud(){
   if(!fb.on||!fb.db)return;
@@ -1499,8 +1529,10 @@ function pushCloud(){
 /* ============================================================
    6. 시작
 ============================================================ */
+const invited=takeInvite();
 load();render();
-if(fbCred())initFB(false);else syncState('');
+if(fbCred())initFB(invited);else syncState('');
+if(invited)toast('초대 링크로 연결합니다 — 구글 로그인 창에서 계정을 선택해 주세요');
 window.addEventListener('beforeprint',()=>{if(!$('printArea').innerHTML&&CUR){const A=analyze();const st=S.students.find(s=>s.id===CUR);if(st)$('printArea').innerHTML=reportHTML(st,A)}});
 
 </script>
