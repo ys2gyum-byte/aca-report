@@ -1406,7 +1406,9 @@ function openSync(){
     </div>
     ${c.config?`<div class="row" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)">
       <button class="btn" onclick="inviteLink()">🔗 공동작업자 초대 링크 복사</button>
-      <span class="muted">이 링크로 들어가면 설정을 붙여넣을 필요 없이 바로 구글 로그인만 하면 됩니다.</span></div>`:''}
+      <span class="muted">이 링크로 들어가면 설정을 붙여넣을 필요 없이 바로 구글 로그인만 하면 됩니다.</span>
+      <p class="muted" style="margin:8px 0 0">※ 카카오톡으로 보내면 <b>카톡 안 브라우저</b>에서 열리는데, 구글이 그 화면에서는 로그인을 막습니다.
+        받는 분께 <b>「⋯ → 다른 브라우저로 열기」</b>를 안내해 주세요. 앱에서도 안내 창이 자동으로 뜹니다.</p></div>`:''}
     ${fb.on?`<div class="row" style="margin-top:12px"><span class="pill a">연결됨</span><span class="muted">${esc(fb.user?.email||'')}</span>
       <button class="btn sm" onclick="fbSignOut()">로그아웃</button></div>`:''}
   </div><div class="foot">
@@ -1445,6 +1447,7 @@ function takeInvite(){
     const d=JSON.parse(decodeURIComponent(escape(atob(m[1]))));
     if(!d.config?.apiKey)return false;
     LS.set(KEYFB,JSON.stringify(d));
+    INVITE_URL=location.href;                 // 다른 브라우저로 옮길 때 이 주소를 그대로 전달해야 합니다
     history.replaceState(null,'',location.pathname);
     return true;
   }catch(e){return false}
@@ -1467,10 +1470,8 @@ async function initFB(interactive){
       if(!u){
         fb.on=false;fb.user=null;if(fb.unsub){fb.unsub();fb.unsub=null}
         syncState('로그인 필요');
-        if(interactive){
-          try{await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())}
-          catch(e){toast('로그인 실패: '+(e.code||e.message))}
-        }else{
+        if(interactive){await fbSignIn(auth)}
+        else{
           $('syncState').innerHTML='';
           syncState('☁︎ 로그인하려면 공유 설정');
         }
@@ -1484,10 +1485,49 @@ async function initFB(interactive){
       syncState('☁︎ '+u.email.split('@')[0]+' · 공유 중','#8fe3b8');
       subscribeCloud(c.room||'default');
     });
-    if(interactive&&!auth.currentUser){
-      try{await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())}catch(e){toast('로그인 실패: '+(e.code||e.message))}
-    }
+    if(interactive&&!auth.currentUser)await fbSignIn(auth);
   }catch(e){console.error(e);syncState('연결 실패');toast('클라우드 연결 실패 — 설정을 확인해 주세요')}
+}
+/* 로그인 — 팝업이 막히는 환경(카톡 등 앱 내 브라우저, file://)을 먼저 걸러냅니다 */
+const IN_APP=/KAKAOTALK|Instagram|FBAN|FBAV|Line\/|NAVER\(inapp|DaumApps|Whale.*inapp|everytimeApp/i.test(navigator.userAgent);
+function envBlock(){
+  if(location.protocol==='file:'){
+    modal(`<h3>이 화면에서는 로그인할 수 없습니다</h3><div class="mbody">
+      <p>파일을 직접 열면(<code>file://</code>) 구글 로그인이 동작하지 않습니다.</p>
+      <p>브라우저 주소창에 아래 주소를 입력해 다시 열어 주세요.</p>
+      <p style="font-size:15px;font-weight:700;margin-top:10px">${esc(location.host||'aca-report.netlify.app')}</p>
+    </div><div class="foot"><button class="btn p" onclick="closeModal()">확인</button></div>`);
+    return true;
+  }
+  if(IN_APP){
+    modal(`<h3>다른 브라우저로 열어 주세요</h3><div class="mbody">
+      <p>지금은 <b>앱 안의 브라우저</b>(카카오톡 등)로 보고 계십니다. 구글이 보안 정책상 이런 화면에서는 로그인을 허용하지 않습니다.</p>
+      <p style="margin-top:10px"><b>카카오톡</b> — 오른쪽 아래(또는 위) <b>⋯</b> → <b>다른 브라우저로 열기</b> (Safari / Chrome)</p>
+      <p style="margin-top:6px">주소를 복사해 브라우저 주소창에 직접 붙여넣어도 됩니다.</p>
+      <div class="row" style="margin-top:12px"><button class="btn" onclick="copyURL()">🔗 주소 복사</button></div>
+      <p class="muted" style="margin-top:10px">한 번만 이렇게 열면, 그 브라우저에는 로그인이 기억됩니다.</p>
+    </div><div class="foot"><button class="btn p" onclick="closeModal()">확인</button></div>`);
+    return true;
+  }
+  return false;
+}
+let INVITE_URL='';
+function copyURL(){
+  const u=INVITE_URL||location.href;
+  (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject())
+    .then(()=>toast('주소를 복사했습니다')).catch(()=>prompt('아래 주소를 복사하세요',u));
+}
+async function fbSignIn(auth){
+  if(envBlock()){syncState('로그인 필요');return}
+  const P=new firebase.auth.GoogleAuthProvider();
+  try{await auth.signInWithPopup(P)}
+  catch(e){
+    const c=e.code||'';
+    if(/popup-blocked|operation-not-supported|cancelled-popup|popup-closed|web-storage-unsupported|internal-error/.test(c)){
+      try{await auth.signInWithRedirect(P)}                       // 팝업이 막히면 페이지 이동 방식으로
+      catch(e2){toast('로그인 실패: '+(e2.code||e2.message))}
+    }else toast('로그인 실패: '+c);
+  }
 }
 function fbSignOut(){if(window.firebase?.apps?.length)firebase.auth().signOut();closeModal();syncState('로그아웃됨')}
 let lastRemote='';
