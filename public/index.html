@@ -1824,7 +1824,18 @@ service cloud.firestore {
 }
 function openSync(){
   const c=fbCred()||{config:null,allow:[],room:'default'};
+  const okMail=fb.user&&(!c.allow?.length||c.allow.includes(fb.user.email));
   modal(`<h3>클라우드 공유 설정</h3><div class="mbody">
+    <div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px">
+      <div style="background:#fafbfc;padding:7px 12px;font-size:12px;font-weight:700;color:var(--ink2);border-bottom:1px solid var(--line2)">연결 진단</div>
+      <table class="t" style="font-size:12.5px"><tbody>
+        <tr><td style="width:34%">접속 주소</td><td><b>${esc(location.host||'파일로 직접 열림')}</b></td></tr>
+        <tr><td>Firebase 설정</td><td>${c.config?`<span class="pill a">있음</span> <span class="muted">${esc(c.config.projectId||'')}</span>`:'<span class="pill c">없음</span> <span class="muted">초대 링크로 접속했는지 확인하세요</span>'}</td></tr>
+        <tr><td>로그인 계정</td><td>${fb.user?`<span class="pill ${okMail?'a':'c'}">${esc(fb.user.email)}</span>${okMail?'':' <span class="muted">허용 목록에 없습니다</span>'}`:'<span class="pill n">로그인 안 됨</span>'}</td></tr>
+        <tr><td>시험 저장소</td><td><b>${esc(c.room||'default')}</b></td></tr>
+        <tr><td>동기화</td><td>${fb.on?'<span class="pill a">공유 중</span>':'<span class="pill n">끊김</span>'}</td></tr>
+      </tbody></table>
+    </div>
     <p class="muted" style="margin-top:0">공동작업자와 같은 데이터를 실시간으로 보려면 Firebase(구글 무료 데이터베이스)를 한 번만 연결하면 됩니다.
       <b>개인 일정 앱과는 반드시 다른 프로젝트</b>를 사용하세요.</p>
     <details style="margin-bottom:12px"><summary style="cursor:pointer;font-weight:600;font-size:13px">처음 연결하는 방법 (5분)</summary>
@@ -1895,7 +1906,44 @@ function takeInvite(){
     return true;
   }catch(e){return false}
 }
-function syncState(t,cls){$('syncState').textContent=t;$('syncState').style.color=cls||'#b6c4d4'}
+function syncState(t,cls,needLogin){
+  const el=$('syncState');el.style.color=cls||'#b6c4d4';
+  el.innerHTML=esc(t)+(needLogin?` <button class="btn ghost sm" style="margin-left:7px" onclick="fbLoginNow()">구글 로그인</button>`:'');
+}
+async function fbLoginNow(){
+  const c=fbCred();
+  if(!c||!c.config)return openSync();
+  if(!window.firebase||!firebase.apps.length)return initFB(true);
+  await fbSignIn(firebase.auth());
+}
+/* 로그인·동기화 실패를 사라지지 않는 안내창으로 설명합니다 */
+function authHelp(code,extra){
+  const host=location.host;
+  const M={
+    'auth/unauthorized-domain':['이 주소에서의 로그인이 아직 허용되지 않았습니다',
+      `관리자가 <b>Firebase 콘솔 → Authentication → 설정 → 승인된 도메인</b>에 <b>${esc(host)}</b> 를 추가해야 합니다.`],
+    'auth/operation-not-allowed':['구글 로그인이 켜져 있지 않습니다',
+      '관리자가 <b>Firebase 콘솔 → Authentication → Sign-in method → Google</b> 을 사용 설정하고 저장해야 합니다.'],
+    'auth/popup-blocked':['브라우저가 로그인 창을 막았습니다',
+      '주소창 오른쪽의 팝업 차단 아이콘에서 이 사이트를 허용한 뒤 다시 눌러 주세요. 잠시 후 자동으로 페이지 이동 방식으로도 시도합니다.'],
+    'auth/popup-closed-by-user':['로그인 창이 닫혔습니다','다시 <b>구글 로그인</b>을 눌러 계정을 선택해 주세요.'],
+    'auth/cancelled-popup-request':['로그인 창이 중복 실행됐습니다','잠시 후 <b>구글 로그인</b>을 다시 눌러 주세요.'],
+    'auth/network-request-failed':['네트워크 연결에 실패했습니다','인터넷 연결을 확인한 뒤 다시 시도해 주세요. 회사·학교 와이파이의 보안 정책 때문일 수도 있습니다.'],
+    'auth/internal-error':['로그인 처리 중 오류가 났습니다','브라우저를 완전히 닫았다 다시 열어 시도해 주세요. 시크릿 창에서는 실패할 수 있습니다.'],
+    'not-allowed':['열람이 허용되지 않은 계정입니다',
+      `관리자에게 아래 주소를 <b>열람 허용 계정</b>과 <b>Firestore 규칙</b> 양쪽에 추가해 달라고 요청하세요.<br>
+       <span style="display:inline-block;margin-top:8px;font-size:15px;font-weight:700">${esc(extra||'')}</span>`],
+    'permission-denied':['클라우드 읽기 권한이 없습니다',
+      '로그인은 됐지만 <b>Firestore 규칙</b>에 이 계정이 없습니다. 관리자가 공유 설정에서 규칙을 다시 복사해 Firebase 콘솔 <b>규칙</b> 탭에 붙여넣고 <b>게시</b>해야 합니다.']
+  };
+  const m=M[code]||['로그인에 실패했습니다',`오류 코드: <b>${esc(code||'알 수 없음')}</b><br>이 화면을 캡처해서 관리자에게 보내 주세요.`];
+  modal(`<h3>${esc(m[0])}</h3><div class="mbody">
+    <p style="line-height:1.8;margin-top:0">${m[1]}</p>
+    <p class="muted" style="margin-top:12px">현재 주소: <b>${esc(host)}</b> · 오류 코드: <code>${esc(code||'-')}</code></p>
+  </div><div class="foot">
+    <button class="btn" onclick="closeModal()">닫기</button>
+    <button class="btn p" onclick="closeModal();fbLoginNow()">다시 로그인</button></div>`);
+}
 function loadScript(src){return new Promise((ok,ng)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=ng;document.head.appendChild(s)})}
 async function initFB(interactive){
   const c=fbCred();if(!c||!c.config)return;
@@ -1912,17 +1960,13 @@ async function initFB(interactive){
     auth.onAuthStateChanged(async u=>{
       if(!u){
         fb.on=false;fb.user=null;if(fb.unsub){fb.unsub();fb.unsub=null}
-        syncState('로그인 필요');
-        if(interactive){await fbSignIn(auth)}
-        else{
-          $('syncState').innerHTML='';
-          syncState('☁︎ 로그인하려면 공유 설정');
-        }
+        syncState('로그인이 필요합니다','#f3c98b',true);
+        if(interactive)await fbSignIn(auth);
         return;
       }
       if(c.allow?.length&&!c.allow.includes(u.email)){
-        toast(`${u.email} 은(는) 열람이 허용된 계정이 아닙니다`);
-        syncState('접근 불가');await auth.signOut();return;
+        const bad=u.email;
+        syncState('접근 불가');await auth.signOut();authHelp('not-allowed',bad);return;
       }
       fb.user=u;fb.db=firebase.firestore();fb.on=true;
       syncState('☁︎ '+u.email.split('@')[0]+' · 공유 중','#8fe3b8');
@@ -1966,10 +2010,10 @@ async function fbSignIn(auth){
   try{await auth.signInWithPopup(P)}
   catch(e){
     const c=e.code||'';
-    if(/popup-blocked|operation-not-supported|cancelled-popup|popup-closed|web-storage-unsupported|internal-error/.test(c)){
+    if(/popup-blocked|operation-not-supported|cancelled-popup|web-storage-unsupported|internal-error/.test(c)){
       try{await auth.signInWithRedirect(P)}                       // 팝업이 막히면 페이지 이동 방식으로
-      catch(e2){toast('로그인 실패: '+(e2.code||e2.message))}
-    }else toast('로그인 실패: '+c);
+      catch(e2){authHelp(e2.code||c)}
+    }else authHelp(c);
   }
 }
 function fbSignOut(){if(window.firebase?.apps?.length)firebase.auth().signOut();closeModal();syncState('로그아웃됨')}
@@ -1986,7 +2030,7 @@ function subscribeCloud(room){
     const ae=document.activeElement;
     if(ae&&/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)){clearTimeout(applyT);applyT=setTimeout(()=>applyRemote(d),4000);return}
     applyRemote(d);
-  },e=>{console.error(e);syncState('동기화 오류');toast('클라우드 읽기 실패 — Firestore 규칙의 허용 계정을 확인해 주세요')});
+  },e=>{console.error(e);syncState('동기화 오류','#f3c98b');authHelp(e.code==='permission-denied'?'permission-denied':(e.code||'read-failed'))});
 }
 let applyT=null;
 function applyRemote(d){
