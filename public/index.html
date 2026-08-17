@@ -526,8 +526,9 @@ function genComments(st,A){
     const clsRate=ss.total?ss.mean/ss.total:0;
     const o={id:sb.id,name:sb.name,rate:d.sc.rate,got:d.sc.got,total:d.sc.total,clsRate,good:[],bad:[],next:''};
     o.line=`${fmt(d.sc.got)}/${fmt(d.sc.total)}점 · 득점률 ${pct(d.sc.rate)} (응시자 평균 ${pct(clsRate)})`;
-    const strong=d.areas.filter(a=>a.n>=2&&(a.rate>=.8||a.rate-a.cls>=.15)).sort((a,b)=>b.rate-a.rate);
-    const weak=d.areas.filter(a=>a.n>=2&&(a.rate<=.5||a.cls-a.rate>=.15)).sort((a,b)=>a.rate-b.rate);
+    // 강점과 보완은 서로 겹치지 않게 — 절대 득점률이 낮으면 평균을 앞서도 보완 쪽으로 봅니다
+    const strong=d.areas.filter(a=>a.n>=2&&(a.rate>=.75||(a.rate>=.55&&a.rate-a.cls>=.15))).sort((a,b)=>b.rate-a.rate);
+    const weak=d.areas.filter(a=>a.n>=2&&!strong.includes(a)&&(a.rate<=.5||a.cls-a.rate>=.15)).sort((a,b)=>a.rate-b.rate);
     const solo0=d.areas.filter(a=>a.n===1&&a.rate===0);
 
     // 강점
@@ -537,12 +538,19 @@ function genComments(st,A){
     if(d.hardSolved.length)o.good.push(`정답률 ${pct(Math.max(...d.hardSolved.map(x=>x.qs.rate)))} 이하의 고난도 문항(${d.hardSolved.map(x=>dispNo(x.q)+'번').join(', ')})을 해결했습니다. 복합 조건을 스스로 분해해 내는 사고력이 확인됩니다.`);
     if(!d.easyMiss.length&&d.buckets.easy.length>=3)o.good.push(`다수가 맞힌 기본 문항 ${d.buckets.easy.length}개를 <b>전부 정답</b> 처리했습니다. 아는 문제를 놓치지 않는 정확도가 좋습니다.`);
     if(cz>=.8&&ss.n>3)o.good.push(`${sb.name} 과목만 놓고 보면 응시자 평균을 ${fmt(d.sc.got-ss.mean)}점 앞서며, 이 시험에서 가장 두드러지는 강점 과목입니다.`);
-    if(!o.good.length&&d.sc.rate>0)o.good.push(`전체적으로 어려운 시험이었음에도 ${d.areas.filter(a=>a.rate>0).length ? `<b>「${esc(d.areas.slice().sort((a,b)=>b.rate-a.rate)[0].unit)}」</b>에서는 득점 흐름이 보입니다` : '끝까지 답안을 작성했습니다'}. 이 부분을 기준점으로 삼아 범위를 넓혀가겠습니다.`);
+    if(!o.good.length&&d.sc.rate>0){
+      const cand=d.areas.filter(a=>!weak.includes(a)&&a.rate>0).sort((a,b)=>b.rate-a.rate)[0];   // 보완으로 지목한 단원은 강점으로 쓰지 않습니다
+      o.good.push(cand
+        ? `전체적으로 어려운 시험이었음에도 <b>「${esc(cand.unit)}」</b>에서는 득점 흐름이 보입니다(득점률 ${pct(cand.rate)}). 이 부분을 기준점으로 삼아 범위를 넓혀가겠습니다.`
+        : `난도가 높은 시험이었지만 끝까지 답안을 작성했습니다. 이번 진단에서 드러난 지점을 하나씩 메우면 충분히 올라갈 수 있습니다.`);
+    }
 
     // 보완
     weak.slice(0,2).forEach(a=>o.bad.push(
       `<b>「${esc(a.unit)}」</b>${jsa(a.unit,'은','는')} ${a.n}문항 중 배점의 ${pct(a.rate)}만 득점했습니다(응시자 평균 ${pct(a.cls)}). `
-      +(a.rate<=.25?'개념 정의와 기본 유형부터 다시 세우는 <b>재학습</b>이 필요한 단원입니다.':'개념은 알고 있으나 문제 상황에 적용하는 단계에서 막히고 있어, 유형별 반복 훈련으로 <b>보완</b>이 필요합니다.')));
+      +(a.rate>=a.cls?'응시자 평균보다는 앞서지만 절대적인 득점률이 낮아, 이 단원 자체의 난이도가 높았던 것으로 보입니다. 기본 유형부터 다시 다질 필요가 있습니다.'
+        :(a.rate<=.25?'개념 정의와 기본 유형부터 다시 세우는 <b>재학습</b>이 필요한 단원입니다.'
+          :'개념은 알고 있으나 문제 상황에 적용하는 단계에서 막히고 있어, 유형별 반복 훈련으로 <b>보완</b>이 필요합니다.'))));
     if(d.easyMiss.length)o.bad.push(`정답률이 높았던 기본 문항 ${d.easyMiss.map(x=>dispNo(x.q)+'번').join(', ')}에서 실점했습니다. 난이도에 비해 아까운 실점으로, <b>조건 재확인·검산 루틴</b>을 습관화하면 바로 회복 가능한 점수입니다.`);
     if(d.hardPartial.length)o.bad.push(`고난도 문항 ${d.hardPartial.map(x=>dispNo(x.q)+'번').join(', ')}에서 부분 득점에 그쳤습니다. <b>접근 방향은 옳았으나 완결이 되지 않은</b> 경우로, 풀이를 끝까지 밀어붙이는 연습이 필요합니다.`);
     if(d.hardMiss.length&&d.hardMiss.length===d.buckets.hard.length&&d.buckets.hard.length>=2)o.bad.push(`정답률 40% 미만의 고난도 ${d.buckets.hard.length}문항은 모두 득점하지 못했습니다. 지금 단계에서는 무리한 심화보다 <b>표준 유형의 완성도</b>를 먼저 끌어올리는 편이 효율적입니다.`);
@@ -1057,8 +1065,10 @@ function pasteScores(){
     <p class="muted" style="margin-top:0">엑셀에서 <b>이름부터 마지막 점수까지</b> 범위를 그대로 복사해 붙여넣으세요.
       한 줄이 한 명이고, <b>숫자 칸이 문항 점수</b>로 들어갑니다. 이름이 이미 있으면 덮어쓰고, 없으면 새로 추가합니다.</p>
     <textarea id="psTa" rows="9" placeholder="문지호	화산중	010-0000-0000		3	1	1	1	4	…"></textarea>
-    <div class="row" style="margin-top:10px">
-      <label class="f" style="flex:1"><span>무시할 점수 칸 번호 <span style="font-weight:400;color:var(--ink3)">— 소계·합계처럼 문항이 아닌 칸이 섞였을 때 (예: 14,15)</span></span>
+    <div class="grid2" style="margin-top:10px">
+      <label class="f"><span>합칠 칸 <span style="font-weight:400;color:var(--ink3)">— 한 문항이 소문항 (1)(2)로 쪼개져 있을 때 (예: 9+10, 11+12)</span></span>
+        <input id="psMerge" placeholder="예) 9+10, 11+12" oninput="psPreview()"></label>
+      <label class="f"><span>무시할 칸 <span style="font-weight:400;color:var(--ink3)">— 소계·합계처럼 문항이 아닌 칸 (예: 14,15)</span></span>
         <input id="psSkip" placeholder="비워두면 전부 문항으로 봅니다" oninput="psPreview()"></label>
     </div>
     <div id="psPre" style="margin-top:10px"></div>
@@ -1070,7 +1080,21 @@ function pasteScores(){
   psPreview();
 }
 const isNum=v=>v!==''&&v!=null&&!isNaN(Number(v));
-function parseScoreRows(text,skip){
+function transformNums(raw,merges,skip){
+  const used=new Set(),out=[];
+  for(let i=1;i<=raw.length;i++){
+    if(used.has(i)||skip.has(i))continue;
+    const g=merges.find(m=>m.includes(i));
+    if(g){
+      g.forEach(k=>used.add(k));
+      const vals=g.map(k=>raw[k-1]);
+      out.push(vals.every(v=>v===null||v===undefined)?null:vals.reduce((a,v)=>a+(v||0),0));
+    }else out.push(raw[i-1]);
+  }
+  return out;
+}
+function parseScoreRows(text,skip,merges){
+  merges=merges||[];
   const rows=String(text||'').split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
     .map(l=>(l.includes('\t')?l.split('\t'):l.split(/ {2,}|\s*\|\s*/)).map(c=>c.trim()));
   const out=[];
@@ -1081,7 +1105,7 @@ function parseScoreRows(text,skip){
     const texts=r.slice(0,first).map(c=>c.trim()).filter(Boolean);
     if(!texts.length)return;                               // 이름이 없는 줄
     let nums=r.slice(first,last+1).map(c=>isNum(c)?Number(c):null);   // 빈칸·기호는 무응답
-    nums=nums.filter((_,i)=>!skip.has(i+1));
+    nums=transformNums(nums,merges,skip);
     const phone=texts.find(t=>/^01[016789][-. ]?\d{3,4}[-. ]?\d{4}$/.test(t.replace(/\s/g,'')))||'';
     const rest=texts.filter(t=>t!==phone);
     out.push({name:rest[0]||texts[0],school:rest[1]||'',phone,nums});
@@ -1091,8 +1115,12 @@ function parseScoreRows(text,skip){
 function skipSet(){
   return new Set(String($('psSkip')?.value||'').split(/[,\s]+/).map(x=>parseInt(x)).filter(n=>n>0));
 }
+function mergeList(){
+  return String($('psMerge')?.value||'').split(',').map(g=>g.split('+').map(x=>parseInt(x)).filter(n=>n>0))
+    .filter(g=>g.length>1);
+}
 function psPreview(){
-  const list=parseScoreRows($('psTa').value,skipSet()), el=$('psPre'), btn=$('psGo');
+  const list=parseScoreRows($('psTa').value,skipSet(),mergeList()), el=$('psPre'), btn=$('psGo');
   const qs=[];P().subjects.forEach(sb=>sb.questions.forEach(q=>qs.push({sb,q})));
   if(!list.length){el.innerHTML='<span class="muted">아직 표를 인식하지 못했습니다.</span>';btn.disabled=true;return}
   const counts=[...new Set(list.map(r=>r.nums.length))];
@@ -1109,12 +1137,14 @@ function psPreview(){
       ${qs.map((c,i)=>`${esc(c.sb.name)}${dispNo(c.q)}=<b>${s.nums[i]===null?'·':s.nums[i]}</b>`).slice(0,8).join(' &nbsp; ')} …
       &nbsp; 합계 <b>${fmt(s.nums.reduce((a,v,i)=>a+Math.min(v===null?0:v,qs[i].q.pt),0))}점</b> / ${fmt(grandTotal())}점</div>`
     :`<div style="color:var(--bad);font-size:12.5px">점수 칸 수와 문항 수가 맞지 않습니다.
-       ${counts.length>1?'줄마다 칸 수가 다릅니다 — 복사 범위를 확인해 주세요.':`문항이 아닌 칸이 ${Math.abs(counts[0]-qs.length)}개 섞여 있다면 위에 그 칸 번호를 적어 주세요.`}<br>
+       ${counts.length>1?'줄마다 칸 수가 다릅니다 — 복사 범위를 확인해 주세요.'
+        :(counts[0]>qs.length?`칸이 ${counts[0]-qs.length}개 많습니다 — 한 문항이 소문항으로 쪼개져 있으면 <b>합칠 칸</b>에, 소계 같은 칸이면 <b>무시할 칸</b>에 적어 주세요.`
+         :`칸이 ${qs.length-counts[0]}개 모자랍니다 — 복사 범위나 시험지 문항 수를 확인해 주세요.`)}<br>
        참고 — 이 시험지 문항 순서: ${P().subjects.map(sb=>`${esc(sb.name)} ${sb.questions.length}문항`).join(' → ')}</div>`}
   </div>`;
 }
 function doPasteScores(){
-  const list=parseScoreRows($('psTa').value,skipSet());
+  const list=parseScoreRows($('psTa').value,skipSet(),mergeList());
   const qs=[];P().subjects.forEach(sb=>sb.questions.forEach(q=>qs.push({sb,q})));
   if(!list.length||list.some(r=>r.nums.length!==qs.length))return toast('점수 칸 수가 문항 수와 맞지 않습니다');
   let add=0,upd=0;
