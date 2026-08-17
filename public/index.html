@@ -181,7 +181,7 @@ table.rt .oT{color:var(--warn);font-weight:800}
 table.rt .oX{color:var(--bad);font-weight:800}
 table.rt .oN{color:#c3c9d2;font-weight:700}
 .dv{display:inline-block;padding:.6pt 4pt;border-radius:3px;font-size:7pt;font-weight:700;white-space:nowrap}
-.d1{background:#eaf6f0;color:#1a7f5a}.d2{background:#eef4f8;color:#2f6690}
+.d1{background:#eaf6f0;color:#1a7f5a}.d2{background:#eef6f1;color:#2c7a58}.d25{background:#eef4f8;color:#2f6690}
 .d3{background:#f3f0fa;color:#6b4fa8}.d4{background:#fdf1e5;color:#b7791f}.d5{background:#fdeceb;color:#b42318}
 
 .areas{display:grid;grid-template-columns:1fr 1fr;gap:4pt 14pt}
@@ -345,7 +345,7 @@ function migrate(raw){
   s.papers.forEach(p=>{
     p.id=p.id||uid();p.name=p.name||'기본형';p.subjects=p.subjects||[];
     p.subjects.forEach(sb=>{sb.id=sb.id||uid();sb.units=sb.units||[];
-      sb.questions=(sb.questions||[]).map((q,i)=>Object.assign({n:i+1,pt:10,unit:'',topic:'',diff:''},q))});
+      sb.questions=(sb.questions||[]).map((q,i)=>Object.assign({n:i+1,no:0,pt:10,unit:'',topic:'',sub:'',diff:''},q))});
   });
   (s.students||[]).forEach(st=>{st.marks=st.marks||{};if(!st.paperId)st.paperId=s.papers[0].id});
   s.v=2;
@@ -433,11 +433,14 @@ function analyze(p){
 function groupAreas(sb){
   const g={};sb.questions.forEach(q=>{const u=(q.unit||'').trim()||'기타';(g[u]=g[u]||[]).push(q)});return g;
 }
+const DIFFS=['최하','하','중하','중','상','최상'];
 function autoDiff(rate){                 // 정답(득점)률 → 난이도
-  if(rate>=.8)return '최하';if(rate>=.65)return '하';if(rate>=.45)return '중';if(rate>=.25)return '상';return '최상';
+  if(rate>=.85)return '최하';if(rate>=.72)return '하';if(rate>=.60)return '중하';
+  if(rate>=.42)return '중';if(rate>=.22)return '상';return '최상';
 }
+const dispNo=q=>(q.no||q.n);             // 표기용 문항번호(붙여넣기로 들어온 통합 번호)
 function diffBand(rate){return rate>=.7?'easy':(rate>=.4?'mid':'hard')}
-const DIFFCLS={'최하':'d1','하':'d2','중':'d3','상':'d4','최상':'d5'};
+const DIFFCLS={'최하':'d1','하':'d2','중하':'d25','중':'d3','상':'d4','최상':'d5'};
 function rankOf(st,A){
   const list=A?.roster||roster(paperOf(st));
   const my=studentTotal(st).got;
@@ -531,7 +534,7 @@ function genComments(st,A){
     strong.slice(0,2).forEach(a=>o.good.push(
       `<b>「${esc(a.unit)}」</b> ${a.n}문항에서 배점의 ${pct(a.rate)}를 득점했습니다(응시자 평균 ${pct(a.cls)}). `
       +(a.rate>=.95?'해당 단원은 개념과 계산이 모두 안정적으로 정착된 상태입니다.':'개념 이해가 안정적이며, 이 단원은 심화 문항으로 확장해도 좋습니다.')));
-    if(d.hardSolved.length)o.good.push(`정답률 ${pct(Math.max(...d.hardSolved.map(x=>x.qs.rate)))} 이하의 고난도 문항(${d.hardSolved.map(x=>x.q.n+'번').join(', ')})을 해결했습니다. 복합 조건을 스스로 분해해 내는 사고력이 확인됩니다.`);
+    if(d.hardSolved.length)o.good.push(`정답률 ${pct(Math.max(...d.hardSolved.map(x=>x.qs.rate)))} 이하의 고난도 문항(${d.hardSolved.map(x=>dispNo(x.q)+'번').join(', ')})을 해결했습니다. 복합 조건을 스스로 분해해 내는 사고력이 확인됩니다.`);
     if(!d.easyMiss.length&&d.buckets.easy.length>=3)o.good.push(`다수가 맞힌 기본 문항 ${d.buckets.easy.length}개를 <b>전부 정답</b> 처리했습니다. 아는 문제를 놓치지 않는 정확도가 좋습니다.`);
     if(cz>=.8&&ss.n>3)o.good.push(`${sb.name} 과목만 놓고 보면 응시자 평균을 ${fmt(d.sc.got-ss.mean)}점 앞서며, 이 시험에서 가장 두드러지는 강점 과목입니다.`);
     if(!o.good.length&&d.sc.rate>0)o.good.push(`전체적으로 어려운 시험이었음에도 ${d.areas.filter(a=>a.rate>0).length ? `<b>「${esc(d.areas.slice().sort((a,b)=>b.rate-a.rate)[0].unit)}」</b>에서는 득점 흐름이 보입니다` : '끝까지 답안을 작성했습니다'}. 이 부분을 기준점으로 삼아 범위를 넓혀가겠습니다.`);
@@ -540,8 +543,8 @@ function genComments(st,A){
     weak.slice(0,2).forEach(a=>o.bad.push(
       `<b>「${esc(a.unit)}」</b>${jsa(a.unit,'은','는')} ${a.n}문항 중 배점의 ${pct(a.rate)}만 득점했습니다(응시자 평균 ${pct(a.cls)}). `
       +(a.rate<=.25?'개념 정의와 기본 유형부터 다시 세우는 <b>재학습</b>이 필요한 단원입니다.':'개념은 알고 있으나 문제 상황에 적용하는 단계에서 막히고 있어, 유형별 반복 훈련으로 <b>보완</b>이 필요합니다.')));
-    if(d.easyMiss.length)o.bad.push(`정답률이 높았던 기본 문항 ${d.easyMiss.map(x=>x.q.n+'번').join(', ')}에서 실점했습니다. 난이도에 비해 아까운 실점으로, <b>조건 재확인·검산 루틴</b>을 습관화하면 바로 회복 가능한 점수입니다.`);
-    if(d.hardPartial.length)o.bad.push(`고난도 문항 ${d.hardPartial.map(x=>x.q.n+'번').join(', ')}에서 부분 득점에 그쳤습니다. <b>접근 방향은 옳았으나 완결이 되지 않은</b> 경우로, 풀이를 끝까지 밀어붙이는 연습이 필요합니다.`);
+    if(d.easyMiss.length)o.bad.push(`정답률이 높았던 기본 문항 ${d.easyMiss.map(x=>dispNo(x.q)+'번').join(', ')}에서 실점했습니다. 난이도에 비해 아까운 실점으로, <b>조건 재확인·검산 루틴</b>을 습관화하면 바로 회복 가능한 점수입니다.`);
+    if(d.hardPartial.length)o.bad.push(`고난도 문항 ${d.hardPartial.map(x=>dispNo(x.q)+'번').join(', ')}에서 부분 득점에 그쳤습니다. <b>접근 방향은 옳았으나 완결이 되지 않은</b> 경우로, 풀이를 끝까지 밀어붙이는 연습이 필요합니다.`);
     if(d.hardMiss.length&&d.hardMiss.length===d.buckets.hard.length&&d.buckets.hard.length>=2)o.bad.push(`정답률 40% 미만의 고난도 ${d.buckets.hard.length}문항은 모두 득점하지 못했습니다. 지금 단계에서는 무리한 심화보다 <b>표준 유형의 완성도</b>를 먼저 끌어올리는 편이 효율적입니다.`);
     if(d.blanks)o.bad.push(`무응답 ${d.blanks}문항이 있습니다. 부분 점수를 노릴 수 있는 문항까지 손을 대지 못한 것은 아닌지, 시간 운영을 함께 점검하겠습니다.`);
     if(solo0.length)o.bad.push(`<b>「${solo0.map(a=>esc(a.unit)).join('」·「')}」</b> 단원은 출제된 문항을 득점하지 못했습니다. 문항 수가 적어 단정하긴 이르지만, 다음 진단에서 확인이 필요한 지점입니다.`);
@@ -695,6 +698,9 @@ function paperBar(manage){
       }).join('')}
       <button class="btn sm" onclick="addPaper()">+ 새 시험지</button>
       ${manage?`<span style="flex:1"></span>
+        <label class="row" style="gap:5px;font-size:12px;color:var(--ink2);cursor:pointer;white-space:nowrap">
+          <input type="checkbox" ${cur.useSub?'checked':''} onchange="P().useSub=this.checked;save();render()"> 세부과목 칸</label>
+        <button class="btn sm g" onclick="pasteTable()">표 붙여넣기</button>
         <button class="btn sm" onclick="renamePaper()">이름·정보</button>
         <button class="btn sm" onclick="copyPaper()">이 시험지 복제</button>
         <button class="btn sm g" onclick="importPaperForm()">다른 시험지 양식 가져오기</button>
@@ -714,7 +720,7 @@ function addPaper(){
 }
 function cloneSubjects(list){
   return list.map(sb=>({id:uid(),name:sb.name,units:sb.units.slice(),
-    questions:sb.questions.map(q=>({n:q.n,pt:q.pt,unit:q.unit,topic:q.topic,diff:q.diff}))}));
+    questions:sb.questions.map(q=>({n:q.n,no:q.no,pt:q.pt,unit:q.unit,topic:q.topic,sub:q.sub,diff:q.diff}))}));
 }
 function copyPaper(){
   const cur=P(),n=prompt('복제본 이름',cur.name+' 사본');
@@ -776,7 +782,7 @@ function doImportPaperForm(){
   if(!src)return;
   if(mode==='all'){
     if(roster(cur).length&&!confirm('현재 시험지의 문항 구성이 교체됩니다. 이미 입력한 채점 결과는 문항이 달라지면 맞지 않을 수 있습니다. 계속할까요?'))return;
-    cur.subjects=cloneSubjects(src.subjects);
+    cur.subjects=cloneSubjects(src.subjects);cur.useSub=!!src.useSub;
   }else{
     cur.subjects.forEach((sb,i)=>{
       const s2=src.subjects.find(x=>x.name===sb.name)||src.subjects[i];
@@ -785,7 +791,7 @@ function doImportPaperForm(){
       sb.questions.forEach(q=>{
         const q2=s2.questions.find(x=>x.n===q.n);if(!q2)return;
         if(mode==='pt')q.pt=q2.pt;
-        else{q.unit=q2.unit;q.topic=q2.topic;q.diff=q2.diff}
+        else{q.unit=q2.unit;q.topic=q2.topic;q.sub=q2.sub;q.diff=q2.diff}
       });
     });
   }
@@ -793,8 +799,82 @@ function doImportPaperForm(){
   toast(({all:'전체 구성을 가져왔습니다',meta:'단원·평가 요소를 가져왔습니다',pt:'배점을 가져왔습니다'})[mode]);
 }
 
+/* ---------- 표 붙여넣기 (엑셀·한글·웹 표를 그대로 복사해 문항 구성 만들기) ---------- */
+function pasteTable(){
+  modal(`<h3>표 붙여넣기 — 「${esc(P().name)}」 문항 구성</h3><div class="mbody">
+    <p class="muted" style="margin-top:0">엑셀·한글·웹 페이지의 표를 그대로 복사해서 아래에 붙여넣으세요.
+      <b>대분류(과목)가 바뀌면 과목이 나뉘고</b>, 문항 번호·배점·단원·문항분석·난이도가 한 번에 채워집니다.</p>
+    <div class="muted" style="background:#fafbfc;border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin-bottom:10px;line-height:1.8">
+      인식하는 열 이름 — <b>문항번호 · 대분류 · 세부과목 · 대단원 · 문항분석 · 난이도 · 배점</b><br>
+      첫 줄에 열 이름이 없으면 <b>위 순서 그대로</b>라고 봅니다. 난이도는 ${DIFFS.join(' / ')} 중 하나이며, 비우면 정답률로 자동 산출합니다.
+    </div>
+    <textarea id="ptTa" rows="10" placeholder="문항번호	대분류	세부과목	대단원	문항분석	난이도	배점
+1	물리	물1	역학	물리학 용어를 정확하게 숙지하고 있는지 확인	하	4"></textarea>
+    <div id="ptPre" class="muted" style="margin-top:8px"></div>
+  </div><div class="foot">
+    <button class="btn" onclick="closeModal()">취소</button>
+    <button class="btn p" onclick="doPasteTable()">이 시험지에 적용</button></div>`);
+  const ta=$('ptTa');
+  ta.addEventListener('input',()=>{
+    const r=parseTable(ta.value);
+    $('ptPre').innerHTML=r.subjects.length
+      ? `인식 결과 — ${r.subjects.map(sb=>`<b>${esc(sb.name)}</b> ${sb.questions.length}문항 · ${fmt(subjTotal(sb))}점`).join(' &nbsp;/&nbsp; ')}
+         &nbsp;→ 합계 <b>${r.subjects.reduce((a,sb)=>a+sb.questions.length,0)}문항 · ${fmt(r.subjects.reduce((a,sb)=>a+subjTotal(sb),0))}점</b>`
+      : '<span style="color:var(--bad)">아직 표를 인식하지 못했습니다 — 표를 통째로 복사해 붙여넣어 주세요.</span>';
+  });
+  setTimeout(()=>ta.focus(),50);
+}
+function parseTable(text){
+  const lines=String(text||'').split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim());
+  if(!lines.length)return {subjects:[]};
+  let rows=lines.map(l=>(l.includes('\t')?l.split('\t'):l.split(/ {2,}|\s*\|\s*/)).map(c=>c.trim()));
+  const H=rows[0]||[];
+  let idx={no:0,cat:1,sub:2,unit:3,topic:4,diff:5,pt:6};
+  if(H.some(c=>/문항\s*번호|대분류|단원|난이도|배점|분석/.test(c))){
+    const used=new Set();
+    const f=re=>{const i=H.findIndex((c,j)=>!used.has(j)&&re.test(c));if(i>=0)used.add(i);return i};
+    idx={no:f(/번호/),sub:f(/세부\s*과목|소분류/),cat:f(/대분류|과목|영역/),unit:f(/단원/),
+         topic:f(/분석|평가\s*요소|내용|설명|출제/),diff:f(/난이도/),pt:f(/배점|점수|점$/)};
+    rows.shift();
+  }
+  const g=(r,i)=>i>=0&&i<r.length?(r[i]||'').trim():'';
+  const groups=[];
+  rows.forEach(r=>{
+    if(!r.length||!r.join('').trim())return;
+    const topic=g(r,idx.topic), no=parseInt(g(r,idx.no)), pt=parseFloat(g(r,idx.pt));
+    if(!topic&&!g(r,idx.unit)&&isNaN(pt))return;                     // 빈 줄·머리글 잔여물
+    const cat=g(r,idx.cat)||'기타';
+    let gr=groups.find(x=>x.name===cat);
+    if(!gr)groups.push(gr={name:cat,questions:[]});
+    let d=g(r,idx.diff).replace(/\s/g,'');
+    if(!DIFFS.includes(d))d='';
+    gr.questions.push({n:gr.questions.length+1,no:isNaN(no)?0:no,pt:isNaN(pt)?0:pt,
+      unit:g(r,idx.unit),topic,sub:g(r,idx.sub),diff:d});
+  });
+  return {subjects:groups.map(gr=>({id:uid(),name:gr.name,
+    units:[...new Set(gr.questions.map(q=>q.unit).filter(Boolean))],questions:gr.questions}))};
+}
+function doPasteTable(){
+  const r=parseTable($('ptTa').value);
+  if(!r.subjects.length)return toast('표를 인식하지 못했습니다');
+  const cur=P(), n=roster(cur).length;
+  if(n&&!confirm(`「${cur.name}」의 문항 구성이 교체됩니다. 이미 입력한 응시자 ${n}명의 채점 결과는 문항이 달라지면 맞지 않을 수 있습니다. 계속할까요?`))return;
+  cur.subjects=r.subjects;
+  if(r.subjects.some(sb=>sb.questions.some(q=>q.sub)))cur.useSub=true;
+  save();closeModal();render();
+  toast(`${r.subjects.length}개 과목 · ${r.subjects.reduce((a,sb)=>a+sb.questions.length,0)}문항을 채웠습니다`);
+}
+
 /* ---------- ② 시험지 구성 ---------- */
+const SUB_PRESET={'물리':['중등','물1','물2'],'화학':['중등','화1','화2'],'생명과학':['중등','생1','생2'],
+  '지구과학':['중등','지1','지2'],'수학':['중등','수(상)','수(하)','수1','수2','미적분','기하','확통']};
+function subOptions(sb){
+  const used=[...new Set(sb.questions.map(q=>(q.sub||'').trim()).filter(Boolean))];
+  const pre=SUB_PRESET[sb.name]||['중등'];
+  return [...new Set([...used,...pre])];
+}
 function renderQuestions(){
+  const USESUB=!!P().useSub;
   $('pane-questions').innerHTML=paperBar(true)+P().subjects.map((sb,si)=>{
     const dl='dlu'+sb.id;
     return `<div class="card">
@@ -811,20 +891,24 @@ function renderQuestions(){
         ${P().subjects.length>1?`<button class="btn sm dg" onclick="delSubject(${si})">과목 삭제</button>`:''}
       </h3>
       <datalist id="${dl}">${sb.units.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
+      <datalist id="dls${sb.id}">${subOptions(sb).map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
       <div class="body tight"><table class="t">
         <thead><tr><th class="n" style="width:52px">문항</th><th class="n" style="width:78px">배점</th>
-          <th style="width:26%">평가 단원</th><th>세부 평가 요소 <span style="font-weight:400;color:var(--ink3)">— 어떤 개념·능력을 보는 문항인지</span></th>
+          ${USESUB?`<th style="width:92px">세부과목</th>`:''}
+          <th style="width:22%">평가 단원</th><th>세부 평가 요소 <span style="font-weight:400;color:var(--ink3)">— 어떤 개념·능력을 보는 문항인지</span></th>
           <th class="n" style="width:96px">난이도</th></tr></thead>
         <tbody>${sb.questions.map((q,qi)=>`<tr>
-          <td class="n"><b>${q.n}</b></td>
+          <td class="n"><b>${dispNo(q)}</b></td>
           <td class="n"><input type="number" min="0" step="0.5" value="${q.pt}" style="width:64px;padding:5px 6px;text-align:center"
             onchange="P().subjects[${si}].questions[${qi}].pt=Number(this.value)||0;save();render()"></td>
+          ${USESUB?`<td><input type="text" list="dls${sb.id}" value="${esc(q.sub||'')}" placeholder="예) 물1"
+            style="padding:5px 8px" oninput="P().subjects[${si}].questions[${qi}].sub=this.value;save()"></td>`:''}
           <td><input type="text" list="${dl}" value="${esc(q.unit)}" placeholder="예) ${esc(sb.units[0]||'단원명')}"
             style="padding:5px 8px" oninput="P().subjects[${si}].questions[${qi}].unit=this.value;save()"></td>
           <td><input type="text" value="${esc(q.topic)}" placeholder="예) 등가속도 운동 그래프 해석"
             style="padding:5px 8px" oninput="P().subjects[${si}].questions[${qi}].topic=this.value;save()"></td>
           <td class="n"><select style="padding:5px 4px" onchange="P().subjects[${si}].questions[${qi}].diff=this.value;save()">
-            <option value="">자동</option>${['최하','하','중','상','최상'].map(d=>`<option ${q.diff===d?'selected':''}>${d}</option>`).join('')}
+            <option value="">자동</option>${DIFFS.map(d=>`<option ${q.diff===d?'selected':''}>${d}</option>`).join('')}
           </select></td></tr>`).join('')}</tbody>
       </table></div>
     </div>`;
@@ -837,7 +921,7 @@ function renderQuestions(){
 }
 function setQCount(si,v){
   const n=clamp(parseInt(v)||1,1,60), sb=P().subjects[si], cur=sb.questions.length;
-  if(n>cur)for(let i=cur;i<n;i++)sb.questions.push({n:i+1,pt:sb.questions.at(-1)?.pt||10,unit:'',topic:'',diff:''});
+  if(n>cur)for(let i=cur;i<n;i++)sb.questions.push({n:i+1,no:0,pt:sb.questions.at(-1)?.pt||10,unit:'',topic:'',sub:'',diff:''});
   else sb.questions=sb.questions.slice(0,n);
   sb.questions.forEach((q,i)=>q.n=i+1);save();render();
 }
@@ -874,7 +958,7 @@ function renderScores(){
   ROWS=roster(PP);
   const cols=[];PP.subjects.forEach(sb=>sb.questions.forEach(q=>cols.push({sb,q})));
   const head1=PP.subjects.map(sb=>`<th class="sub" colspan="${sb.questions.length}">${esc(sb.name)} <span style="font-weight:500;opacity:.7">${fmt(subjTotal(sb))}점</span></th>`).join('');
-  const head2=cols.map(c=>`<th title="${esc(c.sb.name)} ${c.q.n}번 · ${fmt(c.q.pt)}점 ${esc(c.q.unit)}">${c.q.n}</th>`).join('');
+  const head2=cols.map(c=>`<th title="${esc(c.sb.name)} ${dispNo(c.q)}번 · ${fmt(c.q.pt)}점 ${esc(c.q.sub||'')} ${esc(c.q.unit)}">${dispNo(c.q)}</th>`).join('');
   const body=ROWS.map((st,i)=>{
     const T=studentTotal(st);
     return `<tr>
@@ -1030,7 +1114,7 @@ function loadLib(url,test){
   });
 }
 const XLSX_CDN='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-function colName(sb,q){return sb.name+q.n}
+function colName(sb,q){return sb.name+dispNo(q)}
 async function xlsxTemplate(){
   try{
     await loadLib(XLSX_CDN,()=>window.XLSX);
@@ -1082,7 +1166,7 @@ async function xlsxImport(inp){
       let sb=SUBJ.find(x=>x.name===nm)||(SUBJ.length===1&&!nm?SUBJ[0]:null);
       if(!sb&&nm)sb=SUBJ.find(x=>x.name.startsWith(nm)||nm.startsWith(x.name));
       if(!sb)return;
-      const q=sb.questions.find(q=>q.n===no);if(!q)return;
+      const q=sb.questions.find(q=>dispNo(q)===no);if(!q)return;
       map.push({ci,sb,q});
     });
     if(!map.length)return toast('문항 열을 찾지 못했습니다. 열 이름을 "물리1", "화학3" 형식으로 맞춰 주세요');
@@ -1168,11 +1252,11 @@ function renderAnalysis(){
       }).join('')}</tbody></table></div></div>
 
   ${PP.subjects.map(sb=>`<div class="card"><h3>${esc(sb.name)} — 문항별 분석</h3><div class="body tight">
-    <table class="t"><thead><tr><th class="n" style="width:44px">문항</th><th style="width:15%">단원</th><th>세부 평가 요소</th>
+    <table class="t"><thead><tr><th class="n" style="width:44px">문항</th>${PP.useSub?'<th style="width:8%">세부과목</th>':''}<th style="width:15%">단원</th><th>세부 평가 요소</th>
       <th class="n" style="width:52px">배점</th><th class="n" style="width:64px">평균</th><th class="n" style="width:150px">정답률</th>
       <th class="n" style="width:70px">난이도</th><th class="n" style="width:150px">O / △ / X / 무응답</th></tr></thead>
     <tbody>${sb.questions.map(q=>{const s=A.qstat[qkey(sb.id,q.n)];
-      return `<tr><td class="n"><b>${q.n}</b></td><td>${esc(q.unit)||'<span class="muted">미지정</span>'}</td>
+      return `<tr><td class="n"><b>${dispNo(q)}</b></td>${PP.useSub?`<td>${esc(q.sub||'')}</td>`:''}<td>${esc(q.unit)||'<span class="muted">미지정</span>'}</td>
         <td class="muted">${esc(q.topic)||'-'}</td><td class="n">${fmt(q.pt)}</td><td class="n">${fmt(s.mean)}</td>
         <td><div class="row" style="gap:7px;flex-wrap:nowrap"><div class="bar ${s.rate>=.7?'a':(s.rate>=.4?'b':'c')}" style="flex:1"><i style="width:${Math.round(s.rate*100)}%"></i></div>
           <span style="font-size:11.5px;font-weight:700;width:34px;text-align:right">${pct(s.rate)}</span></div></td>
@@ -1261,18 +1345,21 @@ function reportHTML(st,A){
   const vals=A.roster.map(s=>studentTotal(s).got);
   const dateK=(M.examDate||'').replace(/-/g,'. ');
   const det={};PP.subjects.forEach(sb=>det[sb.id]=subjDetail(st,sb,A));
+  // 시험 유형 표기 — 시험지 이름이 이미 유형을 포함하면 중복해서 쓰지 않습니다
+  const typeLabel=S.papers.length<2?(M.examType||'-')
+    :((M.examType&&!PP.name.includes(M.examType))?`${M.examType} · ${PP.name}`:PP.name);
   return `<div class="report${S.cfg.dense?' dense':''}">
     <div class="rhead">
       <div class="l">
         <div class="ac">${esc(M.academy||'ACADEMY')}${M.tagline?` · ${esc(M.tagline)}`:''}</div>
         <h1>${esc(M.examName||'입반테스트')} 성적 분석 리포트</h1>
-        <div class="sub">${esc(M.school||'')}${M.school?' 대비 · ':''}${esc(M.examType||'')}${S.papers.length>1?` · <b>${esc(PP.name)}</b>`:''} · 개인별 학습 진단</div>
+        <div class="sub">${esc(M.school||'')}${M.school?' 대비 · ':''}${esc(typeLabel)} · 개인별 학습 진단</div>
       </div>
       <div class="r"><b>${esc(st.name)}</b><br>${esc(st.school||'')} ${esc(st.grade||'')}<br>발행일 ${new Date().toISOString().slice(0,10).replace(/-/g,'. ')}</div>
     </div>
 
     <div class="rmeta">
-      <div><div class="k">시험 유형</div><div class="v">${esc(M.examType||'-')}${S.papers.length>1?` · ${esc(PP.name)}`:''}</div></div>
+      <div><div class="k">시험 유형</div><div class="v">${esc(typeLabel)}</div></div>
       <div><div class="k">시험 일자</div><div class="v">${esc(dateK||'-')}</div></div>
       <div><div class="k">대상 학교</div><div class="v">${esc(M.school||'-')}</div></div>
       <div><div class="k">응시 인원</div><div class="v">${A.total.n}명</div></div>
@@ -1316,16 +1403,16 @@ function reportHTML(st,A){
     </div>
 
     ${S.cfg.showQTable?PP.subjects.map(sb=>`<div class="rsec"><div class="h">${esc(sb.name)} 문항별 정오표 <span class="tip">난이도는 응시자 정답률 기준으로 산출됩니다</span></div>
-      <table class="rt"><thead><tr><th style="width:26pt">문항</th><th style="width:13%">평가 단원</th><th>세부 평가 요소</th>
+      <table class="rt"><thead><tr><th style="width:26pt">문항</th>${PP.useSub?'<th style="width:34pt">세부과목</th>':''}<th style="width:13%">평가 단원</th><th>세부 평가 요소</th>
         <th style="width:26pt">배점</th><th style="width:30pt">정오</th><th style="width:34pt">획득</th>
         <th style="width:44pt">문항 평균</th><th style="width:40pt">정답률</th><th style="width:34pt">난이도</th></tr></thead>
       <tbody>${sb.questions.map(q=>{
         const s=A.qstat[qkey(sb.id,q.n)],m=markOf(st,sb.id,q.n),k=markKind(q,m),v=qScore(q,m);
-        return `<tr><td><b>${q.n}</b></td><td class="l">${esc(q.unit)||'-'}</td><td class="l">${esc(q.topic)||'-'}</td>
+        return `<tr><td><b>${dispNo(q)}</b></td>${PP.useSub?`<td>${esc(q.sub||'')}</td>`:''}<td class="l">${esc(q.unit)||'-'}</td><td class="l">${esc(q.topic)||'-'}</td>
           <td>${fmt(q.pt)}</td><td class="o${k}">${k==='N'?'·':MARKS[k]}</td><td><b>${v===null?'-':fmt(v)}</b></td>
           <td>${fmt(s.mean)}</td><td>${pct(s.rate)}</td><td><span class="dv ${DIFFCLS[s.diff]}">${s.diff}</span></td></tr>`;
       }).join('')}
-      <tr style="background:#f5f7fa"><td colspan="5" style="text-align:right;font-weight:700">소계</td>
+      <tr style="background:#f5f7fa"><td colspan="${PP.useSub?6:5}" style="text-align:right;font-weight:700">소계</td>
         <td><b>${fmt(det[sb.id].sc.got)}</b></td><td colspan="3" style="text-align:left;padding-left:6pt">
         O ${sb.questions.filter(q=>markKind(q,markOf(st,sb.id,q.n))==='O').length} ·
         △ ${sb.questions.filter(q=>markKind(q,markOf(st,sb.id,q.n))==='T').length} ·
@@ -1360,7 +1447,7 @@ function reportHTML(st,A){
 
     <div class="rfoot">
       <div class="l"><b>${esc(M.academy||'')}</b>${M.contact?` · ${esc(M.contact)}`:''}<br>${esc(M.notice||'')}</div>
-      <div style="text-align:right">${esc(M.examName||'')}${S.papers.length>1?` · ${esc(PP.name)}`:''}<br>${esc(st.name)} · ${esc(dateK||'')}</div>
+      <div style="text-align:right">${esc(M.examName||'')}${S.papers.length>1&&!(M.examName||'').includes(PP.name)?` · ${esc(PP.name)}`:''}<br>${esc(st.name)} · ${esc(dateK||'')}</div>
     </div>
     ${M.stampText?`<div class="stamp">${esc(M.stampText)}</div>`:''}
   </div>`;
