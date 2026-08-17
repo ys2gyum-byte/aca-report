@@ -982,6 +982,7 @@ function renderScores(){
         <button class="btn sm" style="border:0;border-radius:0;${IMODE==='score'?'background:var(--navy);color:#fff':''}" onclick="setMode('score')">점수 직접</button>
       </div>
       <button class="btn sm" onclick="addStudents()">+ 학생 추가</button>
+      <button class="btn sm g" onclick="pasteScores()">점수 붙여넣기</button>
       <button class="btn sm" onclick="xlsxTemplate()">엑셀 양식 받기</button>
       <button class="btn sm g" onclick="$('xlsxIn').click()">엑셀 업로드</button>
       <input type="file" id="xlsxIn" accept=".xlsx,.xls,.csv" style="display:none" onchange="xlsxImport(this)">
@@ -1000,14 +1001,16 @@ function renderScores(){
     :`<div class="empty"><b>「${esc(PP.name)}」 시험지에 등록된 학생이 없습니다</b>
         학생을 추가하거나, 엑셀 양식을 받아 채운 뒤 업로드하세요. 학생은 지금 선택된 시험지에 등록됩니다.
         <div class="row" style="justify-content:center;margin-top:14px">
-          <button class="btn p" onclick="addStudents()">+ 학생 추가</button>
+          <button class="btn p" onclick="pasteScores()">점수 붙여넣기</button>
+          <button class="btn" onclick="addStudents()">+ 학생 추가</button>
           <button class="btn" onclick="xlsxTemplate()">엑셀 양식 받기</button></div></div>`}
   </div>
   ${ROWS.length?`<div class="card"><h3>응시자 명단 <span class="hint">이름을 눌러 학교·특이사항을 입력할 수 있습니다</span></h3>
-    <div class="body tight"><table class="t"><thead><tr><th>이름</th><th>학교</th><th>학년</th><th>특이사항 메모</th>
+    <div class="body tight"><table class="t"><thead><tr><th>이름</th><th>학교</th><th>학년</th><th>연락처</th><th>특이사항 메모</th>
       <th class="n">총점</th><th class="n">득점률</th><th class="n" style="width:60px"></th></tr></thead>
       <tbody>${ROWS.map((st,i)=>{const T=studentTotal(st);return `<tr>
         <td><b>${esc(st.name)}</b></td><td>${esc(st.school||'')}</td><td>${esc(st.grade||'')}</td>
+        <td class="muted">${esc(st.phone||'')}</td>
         <td class="muted">${esc((st.memo||'').slice(0,40))}</td>
         <td class="n"><b>${fmt(T.got)}</b></td><td class="n">${pct(T.rate)}</td>
         <td class="n"><button class="btn sm" onclick="editStudent(${i})">편집</button></td></tr>`}).join('')}</tbody></table></div></div>`:''}`;
@@ -1048,6 +1051,86 @@ function bindGridKeys(){
     }
   });
 }
+/* ---------- 점수 표 붙여넣기 (엑셀에서 이름·점수를 통째로) ---------- */
+function pasteScores(){
+  modal(`<h3>점수 붙여넣기 — 「${esc(P().name)}」</h3><div class="mbody">
+    <p class="muted" style="margin-top:0">엑셀에서 <b>이름부터 마지막 점수까지</b> 범위를 그대로 복사해 붙여넣으세요.
+      한 줄이 한 명이고, <b>숫자 칸이 문항 점수</b>로 들어갑니다. 이름이 이미 있으면 덮어쓰고, 없으면 새로 추가합니다.</p>
+    <textarea id="psTa" rows="9" placeholder="문지호	화산중	010-0000-0000		3	1	1	1	4	…"></textarea>
+    <div class="row" style="margin-top:10px">
+      <label class="f" style="flex:1"><span>무시할 점수 칸 번호 <span style="font-weight:400;color:var(--ink3)">— 소계·합계처럼 문항이 아닌 칸이 섞였을 때 (예: 14,15)</span></span>
+        <input id="psSkip" placeholder="비워두면 전부 문항으로 봅니다" oninput="psPreview()"></label>
+    </div>
+    <div id="psPre" style="margin-top:10px"></div>
+  </div><div class="foot">
+    <button class="btn" onclick="closeModal()">취소</button>
+    <button class="btn p" id="psGo" onclick="doPasteScores()">이 시험지에 입력</button></div>`);
+  $('psTa').addEventListener('input',psPreview);
+  setTimeout(()=>$('psTa').focus(),50);
+  psPreview();
+}
+const isNum=v=>v!==''&&v!=null&&!isNaN(Number(v));
+function parseScoreRows(text,skip){
+  const rows=String(text||'').split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim())
+    .map(l=>(l.includes('\t')?l.split('\t'):l.split(/ {2,}|\s*\|\s*/)).map(c=>c.trim()));
+  const out=[];
+  rows.forEach(r=>{
+    const first=r.findIndex(c=>isNum(c));
+    if(first<0)return;                                     // 숫자가 없는 줄(머리글 등)은 건너뜁니다
+    let last=r.length-1;while(last>first&&!isNum(r[last]))last--;
+    const texts=r.slice(0,first).map(c=>c.trim()).filter(Boolean);
+    if(!texts.length)return;                               // 이름이 없는 줄
+    let nums=r.slice(first,last+1).map(c=>isNum(c)?Number(c):null);   // 빈칸·기호는 무응답
+    nums=nums.filter((_,i)=>!skip.has(i+1));
+    const phone=texts.find(t=>/^01[016789][-. ]?\d{3,4}[-. ]?\d{4}$/.test(t.replace(/\s/g,'')))||'';
+    const rest=texts.filter(t=>t!==phone);
+    out.push({name:rest[0]||texts[0],school:rest[1]||'',phone,nums});
+  });
+  return out;
+}
+function skipSet(){
+  return new Set(String($('psSkip')?.value||'').split(/[,\s]+/).map(x=>parseInt(x)).filter(n=>n>0));
+}
+function psPreview(){
+  const list=parseScoreRows($('psTa').value,skipSet()), el=$('psPre'), btn=$('psGo');
+  const qs=[];P().subjects.forEach(sb=>sb.questions.forEach(q=>qs.push({sb,q})));
+  if(!list.length){el.innerHTML='<span class="muted">아직 표를 인식하지 못했습니다.</span>';btn.disabled=true;return}
+  const counts=[...new Set(list.map(r=>r.nums.length))];
+  const ok=counts.length===1&&counts[0]===qs.length;
+  btn.disabled=!ok;
+  const s=list[0];
+  el.innerHTML=`<div style="border:1px solid ${ok?'var(--line)':'#f5c6c2'};background:${ok?'#fafbfc':'var(--badbg)'};border-radius:7px;padding:10px 12px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:5px">${ok?'✓':'⚠'} 학생 ${list.length}명 · 점수 칸 ${counts.join('/')}개 · 이 시험지 문항 ${qs.length}개</div>
+    ${ok?`${(()=>{                                     // 배점을 넘는 점수 = 열이 밀렸다는 신호
+        const bad=[];
+        list.forEach(r=>r.nums.forEach((v,i)=>{if(v!==null&&v>qs[i].q.pt)bad.push(`${esc(r.name)} ${qs[i].sb.name}${dispNo(qs[i].q)}번 ${v}점(배점 ${qs[i].q.pt})`)}));
+        return bad.length?`<div style="color:var(--bad);font-size:12.5px;margin-bottom:6px">⚠ 배점보다 큰 점수가 ${bad.length}개 있습니다 — 열이 한 칸씩 밀렸을 수 있습니다.<br>${bad.slice(0,3).join(' / ')}${bad.length>3?' …':''}</div>`:'';
+      })()}<div class="muted">첫 줄 확인 — <b>${esc(s.name)}</b>${s.school?` (${esc(s.school)})`:''}${s.phone?` · ${esc(s.phone)}`:''}<br>
+      ${qs.map((c,i)=>`${esc(c.sb.name)}${dispNo(c.q)}=<b>${s.nums[i]===null?'·':s.nums[i]}</b>`).slice(0,8).join(' &nbsp; ')} …
+      &nbsp; 합계 <b>${fmt(s.nums.reduce((a,v,i)=>a+Math.min(v===null?0:v,qs[i].q.pt),0))}점</b> / ${fmt(grandTotal())}점</div>`
+    :`<div style="color:var(--bad);font-size:12.5px">점수 칸 수와 문항 수가 맞지 않습니다.
+       ${counts.length>1?'줄마다 칸 수가 다릅니다 — 복사 범위를 확인해 주세요.':`문항이 아닌 칸이 ${Math.abs(counts[0]-qs.length)}개 섞여 있다면 위에 그 칸 번호를 적어 주세요.`}<br>
+       참고 — 이 시험지 문항 순서: ${P().subjects.map(sb=>`${esc(sb.name)} ${sb.questions.length}문항`).join(' → ')}</div>`}
+  </div>`;
+}
+function doPasteScores(){
+  const list=parseScoreRows($('psTa').value,skipSet());
+  const qs=[];P().subjects.forEach(sb=>sb.questions.forEach(q=>qs.push({sb,q})));
+  if(!list.length||list.some(r=>r.nums.length!==qs.length))return toast('점수 칸 수가 문항 수와 맞지 않습니다');
+  let add=0,upd=0;
+  list.forEach(r=>{
+    let st=roster().find(s=>s.name===r.name);
+    if(!st){st={id:uid(),paperId:P().id,name:r.name,school:r.school,phone:r.phone,grade:P().target||S.meta.target||'',memo:'',marks:{}};S.students.push(st);add++}
+    else{upd++;if(r.school)st.school=r.school;if(r.phone)st.phone=r.phone}
+    qs.forEach((c,i)=>{
+      const k=qkey(c.sb.id,c.q.n), v=r.nums[i];
+      if(v===null)delete st.marks[k];
+      else st.marks[k]=clamp(v,0,c.q.pt)>=c.q.pt?'O':(v<=0?'X':clamp(v,0,c.q.pt));
+    });
+  });
+  save();closeModal();render();toast(`입력 완료 — 신규 ${add}명, 갱신 ${upd}명 · 각 ${qs.length}문항`);
+}
+
 function addStudents(){
   modal(`<h3>학생 추가</h3><div class="mbody">
     <p class="muted" style="margin-top:0">한 줄에 한 명씩 입력하세요. <b>이름</b>만 써도 되고, 탭이나 쉼표로 <b>이름, 학교, 학년</b>을 함께 붙여넣어도 됩니다.</p>
@@ -1075,6 +1158,7 @@ function editStudent(i){
       <label class="f"><span>이름</span><input id="e_name" value="${esc(st.name)}"></label>
       <label class="f"><span>소속 학교</span><input id="e_school" value="${esc(st.school||'')}"></label>
       <label class="f"><span>학년</span><input id="e_grade" value="${esc(st.grade||'')}"></label>
+      <label class="f"><span>연락처 <span style="font-weight:400;color:var(--ink3)">— 내부 관리용, 성적표에는 인쇄되지 않습니다</span></span><input id="e_phone" value="${esc(st.phone||'')}"></label>
       ${S.papers.length>1?`<label class="f"><span>응시 시험지</span>
         <select id="e_paper">${S.papers.map(p=>`<option value="${p.id}" ${p.id===st.paperId?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
     </div>
@@ -1094,6 +1178,7 @@ function saveStudent(i){
   }
   st.name=$('e_name').value.trim();st.school=$('e_school').value.trim();
   st.grade=$('e_grade').value.trim();st.memo=$('e_memo').value.trim();
+  if($('e_phone'))st.phone=$('e_phone').value.trim();
   save();closeModal();render();
 }
 function delStudent(i){
