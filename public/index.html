@@ -82,6 +82,8 @@ table.t th,table.t td{padding:8px 10px;border-bottom:1px solid var(--line2);text
 table.t th{background:#fafbfc;font-size:11.5px;font-weight:700;color:var(--ink2);letter-spacing:0;white-space:nowrap}
 table.t td.n,table.t th.n{text-align:center}
 table.t tbody tr:hover{background:#fcfcfd}
+table.t tbody tr.dm td,table.mk tbody tr.dm .stick,table.mk tbody tr.dm .stick2{background:#fdf9ef;color:#8a6a2a}
+table.mk tbody tr.dm .mkc{opacity:.72}
 
 .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:0}
 .pill.a{background:var(--okbg);color:var(--ok)}
@@ -253,6 +255,7 @@ table.rt .oN{color:#c3c9d2;font-weight:700}
 <div class="tabs"><div class="tabs-in" id="tabs"></div></div>
 
 <div class="wrap">
+  <div id="hint"></div>
   <div class="pane" id="pane-exam"></div>
   <div class="pane" id="pane-questions"></div>
   <div class="pane" id="pane-scores"></div>
@@ -614,8 +617,19 @@ function render(){
   }).join('');
   TABS.forEach(t=>{const p=$('pane-'+t.k);p.classList.toggle('on',TAB===t.k)});
   ({exam:renderExam,questions:renderQuestions,scores:renderScores,analysis:renderAnalysis,report:renderReport})[TAB]();
+  $('hint').innerHTML=hintBar();
   $('brandName').textContent=S.meta.academy||'성적표 생성기';
   $('brandSub').textContent=S.meta.examName||'입반테스트 분석 리포트';
+}
+function hintBar(){
+  if(fbCred()||S.students.length)return '';        // 이미 연결돼 있거나 자료가 있으면 안내하지 않습니다
+  return `<div class="card" style="border-color:#e8d9b0;background:#fbfaf7"><div class="body" style="padding:13px 16px">
+    <b style="font-size:13.5px">공유받은 자료가 보이지 않나요?</b>
+    <p class="muted" style="margin:5px 0 0;line-height:1.75">이 앱은 성적을 <b>각자의 브라우저</b>와 학원 클라우드에 보관합니다.
+      다른 선생님이 입력한 자료를 보려면 주소만으로는 안 되고, <b>「초대 링크」로 한 번 접속</b>해야 합니다.
+      자료를 가진 분에게 <b>☁︎ 공유 설정 → 🔗 공동작업자 초대 링크 복사</b>로 만든 링크를 요청하세요.
+      링크로 들어와 구글 로그인까지 마치면 오른쪽 위에 <b>☁︎ ○○ · 공유 중</b>이 초록색으로 표시됩니다.</p>
+  </div></div>`;
 }
 function setv(p,v){const a=p.split('.');let o=S;for(let i=0;i<a.length-1;i++)o=o[a[i]];o[a.at(-1)]=v;save()}
 function setvr(p,v){setv(p,v);render()}
@@ -969,9 +983,9 @@ function renderScores(){
   const head2=cols.map(c=>`<th title="${esc(c.sb.name)} ${dispNo(c.q)}번 · ${fmt(c.q.pt)}점 ${esc(c.q.sub||'')} ${esc(c.q.unit)}">${dispNo(c.q)}</th>`).join('');
   const body=ROWS.map((st,i)=>{
     const T=studentTotal(st);
-    return `<tr>
+    return `<tr class="${st.dummy?'dm':''}">
       <td class="stick"><span onclick="editStudent(${i})" style="cursor:pointer">${esc(st.name)||'<i class="muted">이름 없음</i>'}</span>
-        <span class="muted" style="font-weight:400"> ${esc(st.school||'')}</span></td>
+        ${st.dummy?'<span class="pill b" style="margin-left:4px">더미</span>':`<span class="muted" style="font-weight:400"> ${esc(st.school||'')}</span>`}</td>
       <td class="stick2" id="tot${i}">${fmt(T.got)}</td>
       ${cols.map(c=>{
         const k=qkey(c.sb.id,c.q.n), v=st.marks[k];
@@ -991,6 +1005,7 @@ function renderScores(){
       </div>
       <button class="btn sm" onclick="addStudents()">+ 학생 추가</button>
       <button class="btn sm g" onclick="pasteScores()">점수 붙여넣기</button>
+      <button class="btn sm" onclick="dummyModal()">더미 데이터</button>
       <button class="btn sm" onclick="xlsxTemplate()">엑셀 양식 받기</button>
       <button class="btn sm g" onclick="$('xlsxIn').click()">엑셀 업로드</button>
       <input type="file" id="xlsxIn" accept=".xlsx,.xls,.csv" style="display:none" onchange="xlsxImport(this)">
@@ -1016,8 +1031,8 @@ function renderScores(){
   ${ROWS.length?`<div class="card"><h3>응시자 명단 <span class="hint">이름을 눌러 학교·특이사항을 입력할 수 있습니다</span></h3>
     <div class="body tight"><table class="t"><thead><tr><th>이름</th><th>학교</th><th>학년</th><th>연락처</th><th>특이사항 메모</th>
       <th class="n">총점</th><th class="n">득점률</th><th class="n" style="width:60px"></th></tr></thead>
-      <tbody>${ROWS.map((st,i)=>{const T=studentTotal(st);return `<tr>
-        <td><b>${esc(st.name)}</b></td><td>${esc(st.school||'')}</td><td>${esc(st.grade||'')}</td>
+      <tbody>${ROWS.map((st,i)=>{const T=studentTotal(st);return `<tr class="${st.dummy?'dm':''}">
+        <td><b>${esc(st.name)}</b>${st.dummy?' <span class="pill b">더미</span>':''}</td><td>${esc(st.school||'')}</td><td>${esc(st.grade||'')}</td>
         <td class="muted">${esc(st.phone||'')}</td>
         <td class="muted">${esc((st.memo||'').slice(0,40))}</td>
         <td class="n"><b>${fmt(T.got)}</b></td><td class="n">${pct(T.rate)}</td>
@@ -1059,6 +1074,78 @@ function bindGridKeys(){
     }
   });
 }
+/* ---------- 더미(가상) 응시자 ---------- */
+function dummyModal(){
+  const real=roster().filter(s=>!s.dummy), dum=roster().filter(s=>s.dummy);
+  const cap=real.length?Math.max(...real.map(s=>studentTotal(s).got)):0;
+  modal(`<h3>더미 데이터 추가 — 「${esc(P().name)}」</h3><div class="mbody">
+    <p class="muted" style="margin-top:0">응시 인원이 적어 평균·분포가 어색할 때, 가상의 응시자를 넣어 통계를 자연스럽게 만듭니다.
+      점수는 난수로 만들되 <b>실제 학생의 최고점을 절대 넘지 않습니다.</b></p>
+    <div class="stats" style="border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px">
+      <div class="stat"><div class="k">실제 응시자</div><div class="v">${real.length}<small>명</small></div></div>
+      <div class="stat"><div class="k">실제 최고점</div><div class="v">${real.length?fmt(cap):'-'}<small>${real.length?'점':''}</small></div></div>
+      <div class="stat"><div class="k">현재 더미</div><div class="v">${dum.length}<small>명</small></div></div>
+    </div>
+    ${real.length?`
+    <div class="grid2">
+      <label class="f"><span>추가할 인원</span><input type="number" id="dmN" value="10" min="1" max="200"></label>
+      <label class="f"><span>점수대</span>
+        <select id="dmBand">
+          <option value="wide">넓게 (실제 최고점의 25% ~ 100%)</option>
+          <option value="mid" selected>보통 (40% ~ 95%)</option>
+          <option value="tight">좁게 (55% ~ 90%)</option>
+        </select></label>
+    </div>
+    <p class="muted" style="margin-top:10px">더미 학생은 목록과 입력표에 <span class="pill b">더미</span> 표시와 함께 다른 색으로 나오고,
+      성적표 발행 대상에서는 기본으로 빠집니다. 언제든 한 번에 지울 수 있습니다.</p>`
+    :`<p style="color:var(--bad)">실제 학생이 한 명도 없습니다. 기준이 될 최고점이 없으므로 먼저 실제 성적을 입력해 주세요.</p>`}
+  </div><div class="foot">
+    ${dum.length?`<button class="btn dg" onclick="clearDummies()">더미 ${dum.length}명 모두 삭제</button>`:''}
+    <span style="flex:1"></span>
+    <button class="btn" onclick="closeModal()">닫기</button>
+    ${real.length?`<button class="btn p" onclick="doAddDummies()">추가</button>`:''}</div>`);
+}
+function doAddDummies(){
+  const n=clamp(parseInt($('dmN').value)||0,1,200), band=$('dmBand').value;
+  const p=P(), real=roster(p).filter(s=>!s.dummy);
+  const cap=Math.max(...real.map(s=>studentTotal(s).got));
+  const lo={wide:.25,mid:.40,tight:.55}[band], hi={wide:1,mid:.95,tight:.90}[band];
+  const qs=[];p.subjects.forEach(sb=>sb.questions.forEach(q=>qs.push({sb,q})));
+  const totalPt=grandTotal(p);
+  const base=roster(p).filter(s=>s.dummy).length;      // 이름 번호는 시작 시점 기준으로 한 번만 셉니다
+  let made=0;
+  for(let i=0;i<n;i++){
+    const target=Math.min(cap,Math.round(cap*(lo+Math.random()*(hi-lo))));
+    const ability=totalPt?target/totalPt:0;
+    const st={id:uid(),paperId:p.id,dummy:true,
+      name:`더미 ${String(base+i+1).padStart(2,'0')}`,
+      school:'',grade:'',phone:'',memo:'',marks:{}};
+    qs.forEach(c=>{
+      const r=clamp(ability+(Math.random()-.5)*.55,0,1);
+      const v=Math.round(r*c.q.pt);
+      st.marks[qkey(c.sb.id,c.q.n)]=v>=c.q.pt?'O':(v<=0?'X':v);
+    });
+    // 실제 최고점을 넘지 않도록 무작위 문항에서 점수를 덜어냅니다
+    let guard=0;
+    while(studentTotal(st).got>target&&guard++<600){
+      const c=qs[Math.floor(Math.random()*qs.length)];
+      const k=qkey(c.sb.id,c.q.n), cur=qScore(c.q,st.marks[k]);
+      if(cur===null||cur<=0)continue;
+      const nv=Math.max(0,cur-1);
+      st.marks[k]=nv>=c.q.pt?'O':(nv<=0?'X':nv);
+    }
+    S.students.push(st);made++;
+  }
+  save();closeModal();render();
+  toast(`더미 ${made}명을 추가했습니다 (최고 ${fmt(Math.max(...roster().filter(s=>s.dummy).map(s=>studentTotal(s).got)))}점 · 실제 최고 ${fmt(cap)}점)`);
+}
+function clearDummies(){
+  const p=P(),n=roster(p).filter(s=>s.dummy).length;
+  if(!confirm(`「${p.name}」의 더미 ${n}명을 삭제할까요? 실제 학생은 그대로 남습니다.`))return;
+  S.students=S.students.filter(s=>!(s.paperId===p.id&&s.dummy));
+  save();closeModal();render();toast('더미 데이터를 삭제했습니다');
+}
+
 /* ---------- 점수 표 붙여넣기 (엑셀에서 이름·점수를 통째로) ---------- */
 function pasteScores(){
   modal(`<h3>점수 붙여넣기 — 「${esc(P().name)}」</h3><div class="mbody">
@@ -1317,7 +1404,7 @@ function histSVG(vals,total,mine,opt={}){
   const bars=b.map((x,i)=>{
     const h=(H-26)*(x.c/max),y=H-18-h,mineIn=mine!==undefined&&mine>=x.from&&(mine<x.to||(i===bins-1&&mine<=x.to));
     return `<g><rect x="${pad+i*bw+1.5}" y="${y}" width="${bw-3}" height="${Math.max(h,1)}" rx="2" fill="${mineIn?'#a9843f':'#c9d2dd'}"/>`
-      +(x.c?`<text x="${pad+i*bw+bw/2}" y="${y-3}" text-anchor="middle" font-size="7" fill="${mineIn?'#a9843f':'#98a2b3'}" font-weight="700">${x.c}</text>`:'')
+      +((x.c&&opt.counts!==false)?`<text x="${pad+i*bw+bw/2}" y="${y-3}" text-anchor="middle" font-size="7" fill="${mineIn?'#a9843f':'#98a2b3'}" font-weight="700">${x.c}</text>`:'')
       +`<text x="${pad+i*bw+bw/2}" y="${H-7}" text-anchor="middle" font-size="6.5" fill="#98a2b3">${Math.round(x.to/total*100)}</text></g>`;
   }).join('');
   const mx=mine!==undefined?pad+(clamp(mine/total,0,1))*(W-pad*2):null;
@@ -1394,8 +1481,8 @@ function renderAnalysis(){
     <table class="t"><thead><tr><th class="n" style="width:52px">순위</th><th>이름</th><th>학교</th>
       ${PP.subjects.map(sb=>`<th class="n">${esc(sb.name)}</th>`).join('')}
       <th class="n">총점</th><th class="n">득점률</th><th class="n">편차(z)</th><th class="n" style="width:80px"></th></tr></thead>
-    <tbody>${ranked.map((r,i)=>`<tr>
-      <td class="n"><b>${i+1}</b></td><td><b>${esc(r.st.name)}</b></td><td class="muted">${esc(r.st.school||'')}</td>
+    <tbody>${ranked.map((r,i)=>`<tr class="${r.st.dummy?'dm':''}">
+      <td class="n"><b>${i+1}</b></td><td><b>${esc(r.st.name)}</b>${r.st.dummy?' <span class="pill b">더미</span>':''}</td><td class="muted">${esc(r.st.school||'')}</td>
       ${PP.subjects.map(sb=>{const sc=studentScore(r.st,sb);return `<td class="n">${fmt(sc.got)}<span class="muted" style="font-size:11px"> (${pct(sc.rate)})</span></td>`}).join('')}
       <td class="n"><b>${fmt(r.T.got)}</b></td><td class="n">${pct(r.T.rate)}</td>
       <td class="n">${fmt(zOf(r.T.got,A.total),2)}</td>
@@ -1414,7 +1501,7 @@ function renderReport(){
   const A=analyze(PP);
   if(!CUR||!list.find(s=>s.id===CUR))CUR=list[0].id;
   const inPaper=[...SEL].filter(id=>list.some(s=>s.id===id));
-  if(!inPaper.length)list.forEach(s=>SEL.add(s.id));
+  if(!inPaper.length)list.filter(s=>!s.dummy).forEach(s=>SEL.add(s.id));   // 더미는 발행 대상에서 기본 제외
   const st=list.find(s=>s.id===CUR);
   el.innerHTML=paperBar(false)+`
   <div class="card"><h3>성적표 발행 <span class="hint" id="pgInfo">선택한 학생을 한 번에 PDF·이미지로 만듭니다</span><span class="sp"></span>
@@ -1432,9 +1519,9 @@ function renderReport(){
           <span class="sp" style="flex:1"></span><span class="muted">${list.filter(s=>SEL.has(s.id)).length}/${list.length}</span>
         </div>
         <div style="max-height:62vh;overflow:auto">
-        ${list.map(s=>{const T=studentTotal(s);return `<div class="row" style="padding:7px 10px;border-bottom:1px solid var(--line2);gap:8px;${s.id===CUR?'background:#eef2f8':''}">
+        ${list.map(s=>{const T=studentTotal(s);return `<div class="row" style="padding:7px 10px;border-bottom:1px solid var(--line2);gap:8px;${s.id===CUR?'background:#eef2f8':(s.dummy?'background:#fdf9ef':'')}">
           <input type="checkbox" ${SEL.has(s.id)?'checked':''} onchange="selOne('${s.id}',this.checked)">
-          <span style="flex:1;cursor:pointer;font-size:13px;font-weight:600" onclick="CUR='${s.id}';render()">${esc(s.name)}
+          <span style="flex:1;cursor:pointer;font-size:13px;font-weight:600" onclick="CUR='${s.id}';render()">${esc(s.name)}${s.dummy?' <span class="pill b">더미</span>':''}
             <span class="muted" style="font-weight:400;display:block;font-size:11px">${esc(s.school||'')} · ${fmt(T.got)}점</span></span>
         </div>`}).join('')}</div>
       </div>
@@ -1450,7 +1537,7 @@ function pageInfo(){
   e.innerHTML=`A4 <b>${p}쪽</b>으로 출력됩니다`
     +(p>1&&tail>0&&tail<.3?` · <span style="color:var(--warn);font-weight:600">마지막 쪽이 거의 비어 있습니다 — 밀도를 「조밀」로 바꾸면 ${p-1}쪽에 담깁니다</span>`:'');
 }
-function selAll(v){const ids=roster().map(s=>s.id);ids.forEach(id=>v?SEL.add(id):SEL.delete(id));render()}
+function selAll(v){roster().forEach(s=>{if(v){if(!s.dummy)SEL.add(s.id)}else SEL.delete(s.id)});render()}
 function selOne(id,v){v?SEL.add(id):SEL.delete(id);render()}
 
 function reportHTML(st,A){
@@ -1496,7 +1583,7 @@ function reportHTML(st,A){
       </div>
       ${S.cfg.showDist?`<div class="distbox">
         <div class="t"><span>응시자 점수 분포</span><em>본인 위치 ${pct(T.rate)}</em></div>
-        ${histSVG(vals,A.total.total,T.got,{w:420,h:104})}
+        ${histSVG(vals,A.total.total,T.got,{w:420,h:104,counts:false})}
         <div style="display:flex;justify-content:space-between;font-size:7pt;color:#8b95a5;margin-top:2pt">
           <span>최저 ${fmt(A.total.min)}</span><span>평균 ${fmt(A.total.mean)}</span><span>최고 ${fmt(A.total.max)}</span></div>
       </div>`:''}
