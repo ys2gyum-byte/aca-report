@@ -1254,8 +1254,15 @@ let ROWS=[];                                  // 현재 시험지의 응시자 (
 function renderScores(){
   const PP=P();
   ROWS=roster(PP);
-  const cols=[];PP.subjects.forEach(sb=>sb.questions.forEach(q=>cols.push({sb,q})));
-  const head1=PP.subjects.map(sb=>`<th class="sub" colspan="${sb.questions.length}">${esc(sb.name)} <span style="font-weight:500;opacity:.7">${fmt(subjTotal(sb))}점</span></th>`).join('');
+  // 열은 언제나 문항 번호 순 — 물리·화학이 섞인 시험지도 시험지 그대로 입력합니다
+  const cols=allQuestions(PP).map(x=>({sb:x.sb,q:x.q}));
+  const runs=[];                                  // 같은 과목이 연속된 구간끼리 머리글을 묶습니다
+  cols.forEach(c=>{const last=runs[runs.length-1];
+    if(last&&last.sb.id===c.sb.id)last.n++;else runs.push({sb:c.sb,n:1})});
+  const head1=runs.map(r=>{
+    const whole=r.n===r.sb.questions.length;      // 과목 전체가 한 구간이면 배점도 함께
+    return `<th class="sub" colspan="${r.n}">${esc(r.sb.name)}${whole?` <span style="font-weight:500;opacity:.7">${fmt(subjTotal(r.sb))}점</span>`:''}</th>`;
+  }).join('');
   const head2=cols.map(c=>`<th title="${esc(c.sb.name)} ${dispNo(c.q)}번 · ${fmt(c.q.pt)}점 ${esc(c.q.sub||'')} ${esc(c.q.unit)}">${dispNo(c.q)}</th>`).join('');
   const body=ROWS.map((st,i)=>{
     const T=studentTotal(st);
@@ -1296,6 +1303,7 @@ function renderScores(){
         <span><b class="mkc T" style="display:inline-block;width:22px;height:20px;border-radius:4px">△</b> 부분 정답 · 배점의 ${Math.round(S.cfg.partial*100)}%</span>
         <span><b class="mkc X" style="display:inline-block;width:22px;height:20px;border-radius:4px">X</b> 오답 · 0점</span>
         <span><b style="display:inline-block;width:22px;text-align:center;color:var(--ink3)">·</b> 무응답 (분석에서 별도 표시)</span>
+        <span style="margin-left:auto;color:var(--ink3)">과목 배점 — ${PP.subjects.map(sb=>`${esc(sb.name)} ${fmt(subjTotal(sb))}점`).join(' · ')}</span>
       </div></div>`
     :`<div class="empty"><b>「${esc(PP.name)}」 시험지에 등록된 학생이 없습니다</b>
         학생을 추가하거나, 엑셀 양식을 받아 채운 뒤 업로드하세요. 학생은 지금 선택된 시험지에 등록됩니다.
