@@ -385,6 +385,10 @@ function migrate(raw){
   s.papers.forEach(p=>{
     p.id=p.id||uid();p.name=p.name||'기본형';p.subjects=p.subjects||[];
     p.view=p.view||'subject';                                   // 'subject' 과목별 / 'flat' 문항 순서대로
+    {                                                           // 과목마다 번호가 1부터면 문항순 보기는 뒤섞이므로 되돌립니다
+      const nos=(p.subjects||[]).flatMap(sb=>(sb.questions||[]).map(q=>q.no||q.n));
+      if(p.view==='flat'&&new Set(nos).size!==nos.length)p.view='subject';
+    }
     p.cols=Object.assign({},DEF_COLS,{sub:!!p.useSub},p.cols||{});
     delete p.useSub;
     if(!p.examId||!s.exams.some(e=>e.id===p.examId))p.examId=s.exams[0].id;
@@ -1013,8 +1017,9 @@ function doPasteTable(){
   if(r.subjects.some(sb=>sb.questions.some(q=>q.type)))cur.cols.type=true;
   // 문항 번호가 과목별로 뭉쳐 있지 않으면(물화 혼합) 문항 순서 보기로 전환합니다
   const seq=r.subjects.flatMap(sb=>sb.questions.map(q=>({name:sb.name,no:dispNo(q)}))).sort((a,b)=>a.no-b.no);
+  const uniqueNo=new Set(seq.map(x=>x.no)).size===seq.length;      // 과목마다 1번부터 매긴 시험지는 제외
   let switches=0;for(let i=1;i<seq.length;i++)if(seq[i].name!==seq[i-1].name)switches++;
-  if(r.subjects.length>1&&switches>=r.subjects.length){cur.view='flat';cur.cols.subject=true}
+  if(uniqueNo&&r.subjects.length>1&&switches>=r.subjects.length){cur.view='flat';cur.cols.subject=true}
   save();closeModal();render();
   toast(`${r.subjects.length}개 과목 · ${r.subjects.reduce((a,sb)=>a+sb.questions.length,0)}문항을 채웠습니다`);
 }
@@ -1254,8 +1259,10 @@ let ROWS=[];                                  // 현재 시험지의 응시자 (
 function renderScores(){
   const PP=P();
   ROWS=roster(PP);
-  // 열은 언제나 문항 번호 순 — 물리·화학이 섞인 시험지도 시험지 그대로 입력합니다
-  const cols=allQuestions(PP).map(x=>({sb:x.sb,q:x.q}));
+  // 열 순서는 시험지 설정을 따릅니다 — 과목별로 묶거나(기본), 문항 번호 순으로
+  const cols=PP.view==='flat'
+    ? allQuestions(PP).map(x=>({sb:x.sb,q:x.q}))
+    : PP.subjects.flatMap(sb=>sb.questions.map(q=>({sb,q})));
   const runs=[];                                  // 같은 과목이 연속된 구간끼리 머리글을 묶습니다
   cols.forEach(c=>{const last=runs[runs.length-1];
     if(last&&last.sb.id===c.sb.id)last.n++;else runs.push({sb:c.sb,n:1})});
