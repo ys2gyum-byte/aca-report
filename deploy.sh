@@ -66,11 +66,17 @@ if ! gh "https://api.github.com/repos/${OWNER}/${REPO_NAME}/pages" >/dev/null 2>
 fi
 
 URL="https://${OWNER}.github.io/${REPO_NAME}/"
-echo -n "· 반영 대기"
-for _ in $(seq 1 40); do
-  CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
-  if [ "$CODE" = "200" ]; then echo; echo "✓ 배포 완료 → $URL"; exit 0; fi
+# 주소가 응답하는지가 아니라, 방금 올린 내용이 실제로 나오는지 확인합니다 (보통 1~2분)
+echo -n "· 실제 반영 확인 중"
+for _ in $(seq 1 60); do
+  if curl -s -H 'Cache-Control: no-cache' "$URL" | grep -q "$STAMP"; then
+    echo; echo "✓ 배포 완료 (버전 ${STAMP}) → $URL"
+    echo "  화면이 그대로면 브라우저에서 ⌘+Shift+R 로 새로고침하세요."
+    exit 0
+  fi
   echo -n "."
   sleep 5
 done
-echo; echo "⚠ 아직 반영 전입니다. 1~2분 뒤 다시 열어보세요 → $URL"
+echo; echo "⚠ 3분이 지나도 반영되지 않았습니다 — 잠시 후 $URL 을 다시 열어보세요."
+echo "  확인 방법: 앱 → ☁︎ 공유 설정 → '이 화면의 버전'이 ${STAMP} 인지 보세요."
+exit 1
