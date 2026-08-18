@@ -289,9 +289,10 @@ const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 
 function blankSubject(name){
   const units=UNIT_PRESET[name]||[];
-  return {id:uid(),name,units:units.slice(),questions:Array.from({length:10},(_,i)=>({n:i+1,pt:10,unit:'',topic:'',diff:''}))};
+  return {id:uid(),name,units:units.slice(),questions:Array.from({length:10},(_,i)=>({n:i+1,pt:10,unit:'',topic:'',sub:'',type:'',diff:''}))};
 }
-const DEF_COLS={subject:false,sub:false,unit:true,topic:true,pt:true,mean:true,rate:true,diff:true};
+const DEF_COLS={subject:false,sub:false,type:false,unit:true,topic:true,pt:true,mean:true,rate:true,diff:true};
+const TYPE_PRESET=['객관식','단답형','서술형','논술형','추론형','실험설계','계산형'];
 function blankPaper(name,examId){
   return {id:uid(),examId:examId||'',name:name||'기본형',target:'',note:'',view:'subject',
     cols:Object.assign({},DEF_COLS),subjects:[blankSubject('물리'),blankSubject('화학')]};
@@ -383,11 +384,11 @@ function migrate(raw){
   s.papers.forEach(p=>{
     p.id=p.id||uid();p.name=p.name||'기본형';p.subjects=p.subjects||[];
     p.view=p.view||'subject';                                   // 'subject' 과목별 / 'flat' 문항 순서대로
-    p.cols=Object.assign({subject:false,sub:!!p.useSub,unit:true,topic:true,pt:true,mean:true,rate:true,diff:true},p.cols||{});
+    p.cols=Object.assign({},DEF_COLS,{sub:!!p.useSub},p.cols||{});
     delete p.useSub;
     if(!p.examId||!s.exams.some(e=>e.id===p.examId))p.examId=s.exams[0].id;
     p.subjects.forEach(sb=>{sb.id=sb.id||uid();sb.units=sb.units||[];
-      sb.questions=(sb.questions||[]).map((q,i)=>Object.assign({n:i+1,no:0,pt:10,unit:'',topic:'',sub:'',diff:''},q))});
+      sb.questions=(sb.questions||[]).map((q,i)=>Object.assign({n:i+1,no:0,pt:10,unit:'',topic:'',sub:'',type:'',diff:''},q))});
   });
   (s.students||[]).forEach(st=>{st.marks=st.marks||{};
     if(!st.paperId||!s.papers.some(p=>p.id===st.paperId))st.paperId=s.papers[0].id});
@@ -522,7 +523,14 @@ function subjDetail(st,sb,A){
     buckets[qs.band].push({q,qs,kind:markKind(q,m),val:qScore(q,m)});
   });
   const all=[].concat(buckets.easy,buckets.mid,buckets.hard);
-  return {sc,areas,buckets,
+  const types={};                                        // 문항 유형별 득점 (서술형 등)
+  sb.questions.forEach(q=>{
+    const t=(q.type||'').trim();if(!t)return;
+    const v=qScore(q,markOf(st,sb.id,q.n));
+    (types[t]=types[t]||{n:0,got:0,tp:0}); types[t].n++; types[t].got+=(v===null?0:v); types[t].tp+=q.pt;
+  });
+  Object.values(types).forEach(x=>x.rate=x.tp?x.got/x.tp:0);
+  return {sc,areas,types,buckets,
     blanks:all.filter(x=>x.kind==='N').length,
     easyMiss:buckets.easy.filter(x=>x.kind!=='O'),
     midMiss:buckets.mid.filter(x=>x.kind==='X'||x.kind==='N'),
@@ -597,6 +605,16 @@ function genComments(st,A){
     if(d.easyMiss.length)o.bad.push(`정답률이 높았던 기본 문항 ${d.easyMiss.map(x=>dispNo(x.q)+'번').join(', ')}에서 실점했습니다. 난이도에 비해 아까운 실점으로, <b>조건 재확인·검산 루틴</b>을 습관화하면 바로 회복 가능한 점수입니다.`);
     if(d.hardPartial.length)o.bad.push(`고난도 문항 ${d.hardPartial.map(x=>dispNo(x.q)+'번').join(', ')}에서 부분 득점에 그쳤습니다. <b>접근 방향은 옳았으나 완결이 되지 않은</b> 경우로, 풀이를 끝까지 밀어붙이는 연습이 필요합니다.`);
     if(d.hardMiss.length&&d.hardMiss.length===d.buckets.hard.length&&d.buckets.hard.length>=2)o.bad.push(`정답률 40% 미만의 고난도 ${d.buckets.hard.length}문항은 모두 득점하지 못했습니다. 지금 단계에서는 무리한 심화보다 <b>표준 유형의 완성도</b>를 먼저 끌어올리는 편이 효율적입니다.`);
+    // 유형별 — 서술형처럼 쓰는 힘이 필요한 문항
+    Object.keys(d.types||{}).forEach(t=>{
+      const x=d.types[t];if(x.n<2)return;
+      const 서술=/서술|논술/.test(t);
+      if(x.rate>=.75)o.good.push(`<b>${esc(t)}</b> ${x.n}문항에서 배점의 ${pct(x.rate)}를 확보했습니다. `
+        +(서술?'답을 아는 데 그치지 않고 <b>근거를 문장으로 완성</b>하는 힘이 있습니다.':'해당 형식의 문항을 안정적으로 처리합니다.'));
+      else if(x.rate<=.4)o.bad.push(`<b>${esc(t)}</b> ${x.n}문항의 득점률이 ${pct(x.rate)}에 그쳤습니다. `
+        +(서술?'개념을 알더라도 <b>풀이 과정과 근거를 글로 정리하는 훈련</b>이 별도로 필요합니다. 답만 맞히는 연습으로는 오르지 않는 영역입니다.'
+          :'이 형식에 대한 적응 훈련이 필요합니다.'));
+    });
     if(d.blanks)o.bad.push(`무응답 ${d.blanks}문항이 있습니다. 부분 점수를 노릴 수 있는 문항까지 손을 대지 못한 것은 아닌지, 시간 운영을 함께 점검하겠습니다.`);
     if(solo0.length)o.bad.push(`<b>「${solo0.map(a=>esc(a.unit)).join('」·「')}」</b> 단원은 출제된 문항을 득점하지 못했습니다. 문항 수가 적어 단정하긴 이르지만, 다음 진단에서 확인이 필요한 지점입니다.`);
     if(!o.bad.length)o.bad.push(`뚜렷한 약점 단원이 드러나지 않았습니다. 현행 수준의 문제로는 변별이 어려우므로, <b>더 높은 난이도</b>에서 다시 진단할 것을 권합니다.`);
@@ -844,7 +862,7 @@ function addPaper(){
 }
 function cloneSubjects(list){
   return list.map(sb=>({id:uid(),name:sb.name,units:sb.units.slice(),
-    questions:sb.questions.map(q=>({n:q.n,no:q.no,pt:q.pt,unit:q.unit,topic:q.topic,sub:q.sub,diff:q.diff}))}));
+    questions:sb.questions.map(q=>({n:q.n,no:q.no,pt:q.pt,unit:q.unit,topic:q.topic,sub:q.sub,type:q.type,diff:q.diff}))}));
 }
 function copyPaper(){
   const cur=P(),n=prompt('복제본 이름',cur.name+' 사본');
@@ -916,7 +934,7 @@ function doImportPaperForm(){
       sb.questions.forEach(q=>{
         const q2=s2.questions.find(x=>x.n===q.n);if(!q2)return;
         if(mode==='pt')q.pt=q2.pt;
-        else{q.unit=q2.unit;q.topic=q2.topic;q.sub=q2.sub;q.diff=q2.diff}
+        else{q.unit=q2.unit;q.topic=q2.topic;q.sub=q2.sub;q.type=q2.type;q.diff=q2.diff}
       });
     });
   }
@@ -930,7 +948,8 @@ function pasteTable(){
     <p class="muted" style="margin-top:0">엑셀·한글·웹 페이지의 표를 그대로 복사해서 아래에 붙여넣으세요.
       <b>대분류(과목)가 바뀌면 과목이 나뉘고</b>, 문항 번호·배점·단원·문항분석·난이도가 한 번에 채워집니다.</p>
     <div class="muted" style="background:#fafbfc;border:1px solid var(--line);border-radius:7px;padding:9px 11px;margin-bottom:10px;line-height:1.8">
-      인식하는 열 이름 — <b>문항번호 · 대분류 · 세부과목 · 대단원 · 문항분석 · 난이도 · 배점</b><br>
+      인식하는 열 이름 — <b>문항번호 · 대분류 · 세부과목 · 문항유형 · 대단원 · 문항분석 · 난이도 · 배점</b><br>
+      문항분석이 <b>[서술형]</b> 처럼 시작하면 그 부분을 <b>문항 유형</b>으로 자동 분리합니다.<br>
       첫 줄에 열 이름이 없으면 <b>위 순서 그대로</b>라고 봅니다. 난이도는 ${DIFFS.join(' / ')} 중 하나이며, 비우면 정답률로 자동 산출합니다.
     </div>
     <textarea id="ptTa" rows="10" placeholder="문항번호	대분류	세부과목	대단원	문항분석	난이도	배점
@@ -954,11 +973,11 @@ function parseTable(text){
   if(!lines.length)return {subjects:[]};
   let rows=lines.map(l=>(l.includes('\t')?l.split('\t'):l.split(/ {2,}|\s*\|\s*/)).map(c=>c.trim()));
   const H=rows[0]||[];
-  let idx={no:0,cat:1,sub:2,unit:3,topic:4,diff:5,pt:6};
+  let idx={no:0,cat:1,sub:2,type:-1,unit:3,topic:4,diff:5,pt:6};
   if(H.some(c=>/문항\s*번호|대분류|단원|난이도|배점|분석/.test(c))){
     const used=new Set();
     const f=re=>{const i=H.findIndex((c,j)=>!used.has(j)&&re.test(c));if(i>=0)used.add(i);return i};
-    idx={no:f(/번호/),sub:f(/세부\s*과목|소분류/),cat:f(/대분류|과목|영역/),unit:f(/단원/),
+    idx={no:f(/번호/),sub:f(/세부\s*과목|소분류/),type:f(/유형|형식|문항\s*형태/),cat:f(/대분류|과목|영역/),unit:f(/단원/),
          topic:f(/분석|평가\s*요소|내용|설명|출제/),diff:f(/난이도/),pt:f(/배점|점수|점$/)};
     rows.shift();
   }
@@ -966,7 +985,10 @@ function parseTable(text){
   const groups=[];
   rows.forEach(r=>{
     if(!r.length||!r.join('').trim())return;
-    const topic=g(r,idx.topic), no=parseInt(g(r,idx.no)), pt=parseFloat(g(r,idx.pt));
+    let topic=g(r,idx.topic); const no=parseInt(g(r,idx.no)), pt=parseFloat(g(r,idx.pt));
+    let type=g(r,idx.type);
+    const pre=topic.match(/^\[([^\]]{1,8})\]\s*/);          // "[서술형] …" 같은 접두어를 유형으로 옮깁니다
+    if(pre&&!type){type=pre[1];topic=topic.slice(pre[0].length)}
     if(!topic&&!g(r,idx.unit)&&isNaN(pt))return;                     // 빈 줄·머리글 잔여물
     const cat=g(r,idx.cat)||'기타';
     let gr=groups.find(x=>x.name===cat);
@@ -974,7 +996,7 @@ function parseTable(text){
     let d=g(r,idx.diff).replace(/\s/g,'');
     if(!DIFFS.includes(d))d='';
     gr.questions.push({n:gr.questions.length+1,no:isNaN(no)?0:no,pt:isNaN(pt)?0:pt,
-      unit:g(r,idx.unit),topic,sub:g(r,idx.sub),diff:d});
+      unit:g(r,idx.unit),topic,sub:g(r,idx.sub),type,diff:d});
   });
   return {subjects:groups.map(gr=>({id:uid(),name:gr.name,
     units:[...new Set(gr.questions.map(q=>q.unit).filter(Boolean))],questions:gr.questions}))};
@@ -987,6 +1009,7 @@ function doPasteTable(){
   cur.subjects=r.subjects;
   cur.cols=Object.assign({},DEF_COLS,cur.cols||{});
   if(r.subjects.some(sb=>sb.questions.some(q=>q.sub)))cur.cols.sub=true;
+  if(r.subjects.some(sb=>sb.questions.some(q=>q.type)))cur.cols.type=true;
   // 문항 번호가 과목별로 뭉쳐 있지 않으면(물화 혼합) 문항 순서 보기로 전환합니다
   const seq=r.subjects.flatMap(sb=>sb.questions.map(q=>({name:sb.name,no:dispNo(q)}))).sort((a,b)=>a.no-b.no);
   let switches=0;for(let i=1;i<seq.length;i++)if(seq[i].name!==seq[i-1].name)switches++;
@@ -1008,7 +1031,7 @@ function allQuestions(p){
   p.subjects.forEach((sb,si)=>sb.questions.forEach((q,qi)=>out.push({sb,q,si,qi})));
   return out.sort((a,b)=>(dispNo(a.q)-dispNo(b.q))||(a.si-b.si));
 }
-const COLDEF=[['subject','과목'],['sub','세부과목'],['unit','평가 단원'],['topic','세부 평가 요소'],
+const COLDEF=[['subject','과목'],['sub','세부과목'],['type','문항 유형'],['unit','평가 단원'],['topic','세부 평가 요소'],
   ['pt','배점'],['mean','문항 평균'],['rate','정답률'],['diff','난이도']];
 function colOn(k,p){return !!(((p||P()).cols)||DEF_COLS)[k]}
 function colsModal(){
@@ -1018,7 +1041,7 @@ function colsModal(){
       여기서 켠 항목은 <b>시험지 구성 표에도</b> 함께 나타납니다.</p>
     ${COLDEF.map(([k,label])=>`<label class="row" style="gap:8px;cursor:pointer;padding:6px 0">
       <input type="checkbox" ${colOn(k,p)?'checked':''} onchange="P().cols['${k}']=this.checked;save();render();">
-      <span style="font-size:13px">${label}${k==='subject'?' <span class="muted">— 물리·화학이 섞인 시험지에서 유용합니다</span>':''}${k==='mean'?' <span class="muted">— 응시자 전체의 문항 평균 점수</span>':''}</span></label>`).join('')}
+      <span style="font-size:13px">${label}${k==='subject'?' <span class="muted">— 물리·화학이 섞인 시험지에서 유용합니다</span>':''}${k==='type'?' <span class="muted">— 객관식 / 단답형 / 서술형 …</span>':''}${k==='mean'?' <span class="muted">— 응시자 전체의 문항 평균 점수</span>':''}</span></label>`).join('')}
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)">
       <span style="display:block;font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:6px">문항별 정오표 배치</span>
       <label class="row" style="gap:8px;cursor:pointer;padding:5px 0"><input type="radio" name="pview" ${p.view!=='flat'?'checked':''}
@@ -1063,7 +1086,7 @@ function addQuestionFlat(){
   const last=allQuestions(p).at(-1);
   const sb=last?last.sb:(p.subjects[0]||(p.subjects.push({id:uid(),name:'과목',units:[],questions:[]}),p.subjects[0]));
   sb.questions.push({n:Math.max(0,...sb.questions.map(x=>x.n))+1,no:nextNo(p),
-    pt:last?last.q.pt:5,unit:last?last.q.unit:'',topic:'',sub:last?last.q.sub:'',diff:''});
+    pt:last?last.q.pt:5,unit:last?last.q.unit:'',topic:'',sub:last?last.q.sub:'',type:last?last.q.type:'',diff:''});
   save();render();
 }
 function delQuestion(qid){
@@ -1096,6 +1119,7 @@ function flatQuestionTable(p){
   return `<datalist id="dlSubj">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
   <datalist id="dlUnitAll">${[...new Set(p.subjects.flatMap(sb=>sb.units.concat(sb.questions.map(q=>q.unit))))].filter(Boolean).map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
   <datalist id="dlSubAll">${[...new Set(p.subjects.flatMap(sb=>subOptions(sb)))].map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
+  <datalist id="dlType2">${[...new Set([...p.subjects.flatMap(sb=>sb.questions.map(q=>q.type)).filter(Boolean),...TYPE_PRESET])].map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
   <div class="card"><h3>문항 구성 <span class="pill v">문항 순서대로</span>
     <span class="hint">과목 칸을 고치면 그 문항이 해당 과목으로 옮겨집니다 (채점 결과도 함께 이동)</span>
     <span class="sp"></span>
@@ -1107,6 +1131,7 @@ function flatQuestionTable(p){
       <th class="n" style="width:56px">문항</th>
       ${C('subject')?'<th style="width:90px">과목</th>':''}
       ${C('sub')?'<th style="width:84px">세부과목</th>':''}
+      ${C('type')?'<th style="width:88px">문항 유형</th>':''}
       ${C('unit')?'<th style="width:18%">평가 단원</th>':''}
       ${C('topic')?'<th>세부 평가 요소</th>':''}
       ${C('diff')?'<th class="n" style="width:88px">난이도</th>':''}
@@ -1119,6 +1144,8 @@ function flatQuestionTable(p){
         onchange="moveQSubject('${id}',this.value)"></td>`:''}
       ${C('sub')?`<td><input type="text" list="dlSubAll" value="${esc(q.sub||'')}" style="padding:5px 8px"
         oninput="setQField('${id}','sub',this.value)"></td>`:''}
+      ${C('type')?`<td><input type="text" list="dlType2" value="${esc(q.type||'')}" placeholder="예) 서술형" style="padding:5px 8px"
+        oninput="setQField('${id}','type',this.value)"></td>`:''}
       ${C('unit')?`<td><input type="text" list="dlUnitAll" value="${esc(q.unit)}" placeholder="예) 역학" style="padding:5px 8px"
         oninput="setQField('${id}','unit',this.value)"></td>`:''}
       ${C('topic')?`<td><input type="text" value="${esc(q.topic)}" placeholder="예) 등가속도 운동 그래프 해석" style="padding:5px 8px"
@@ -1140,7 +1167,8 @@ function flatQuestionTable(p){
 /* (나) 과목별로 나눠서 — 기존 방식 */
 function subjectQuestionTables(p){
   const USESUB=colOn('sub',p), C=k=>colOn(k,p);
-  return p.subjects.map((sb,si)=>{
+  return `<datalist id="dlTypeAll">${[...new Set([...p.subjects.flatMap(sb=>sb.questions.map(q=>q.type)).filter(Boolean),...TYPE_PRESET])].map(u=>`<option value="${esc(u)}">`).join('')}</datalist>`
+  +p.subjects.map((sb,si)=>{
     const dl='dlu'+sb.id;
     return `<div class="card">
       <h3>
@@ -1160,7 +1188,8 @@ function subjectQuestionTables(p){
       <div class="body tight"><table class="t">
         <thead><tr><th class="n" style="width:52px">문항</th>${C('pt')?'<th class="n" style="width:78px">배점</th>':''}
           ${USESUB?`<th style="width:92px">세부과목</th>`:''}
-          ${C('unit')?'<th style="width:22%">평가 단원</th>':''}
+          ${C('type')?'<th style="width:88px">문항 유형</th>':''}
+          ${C('unit')?'<th style="width:20%">평가 단원</th>':''}
           ${C('topic')?'<th>세부 평가 요소 <span style="font-weight:400;color:var(--ink3)">— 어떤 개념·능력을 보는 문항인지</span></th>':''}
           ${C('diff')?'<th class="n" style="width:96px">난이도</th>':''}</tr></thead>
         <tbody>${sb.questions.map((q,qi)=>{const id=qkey(sb.id,q.n);return `<tr>
@@ -1169,6 +1198,8 @@ function subjectQuestionTables(p){
             onchange="setQField('${id}','pt',this.value);render()"></td>`:''}
           ${USESUB?`<td><input type="text" list="dls${sb.id}" value="${esc(q.sub||'')}" placeholder="예) 물1"
             style="padding:5px 8px" oninput="setQField('${id}','sub',this.value)"></td>`:''}
+          ${C('type')?`<td><input type="text" list="dlTypeAll" value="${esc(q.type||'')}" placeholder="예) 서술형"
+            style="padding:5px 8px" oninput="setQField('${id}','type',this.value)"></td>`:''}
           ${C('unit')?`<td><input type="text" list="${dl}" value="${esc(q.unit)}" placeholder="예) ${esc(sb.units[0]||'단원명')}"
             style="padding:5px 8px" oninput="setQField('${id}','unit',this.value)"></td>`:''}
           ${C('topic')?`<td><input type="text" value="${esc(q.topic)}" placeholder="예) 등가속도 운동 그래프 해석"
@@ -1187,7 +1218,7 @@ function subjectQuestionTables(p){
 }
 function setQCount(si,v){
   const n=clamp(parseInt(v)||1,1,60), sb=P().subjects[si], cur=sb.questions.length;
-  if(n>cur)for(let i=cur;i<n;i++)sb.questions.push({n:i+1,no:0,pt:sb.questions.at(-1)?.pt||10,unit:'',topic:'',sub:'',diff:''});
+  if(n>cur)for(let i=cur;i<n;i++)sb.questions.push({n:i+1,no:0,pt:sb.questions.at(-1)?.pt||10,unit:'',topic:'',sub:'',type:'',diff:''});
   else sb.questions=sb.questions.slice(0,n);
   sb.questions.forEach((q,i)=>q.n=i+1);save();render();
 }
@@ -1698,11 +1729,11 @@ function renderAnalysis(){
       }).join('')}</tbody></table></div></div>
 
   ${PP.subjects.map(sb=>`<div class="card"><h3>${esc(sb.name)} — 문항별 분석</h3><div class="body tight">
-    <table class="t"><thead><tr><th class="n" style="width:44px">문항</th>${colOn('sub',PP)?'<th style="width:8%">세부과목</th>':''}<th style="width:15%">단원</th><th>세부 평가 요소</th>
+    <table class="t"><thead><tr><th class="n" style="width:44px">문항</th>${colOn('sub',PP)?'<th style="width:8%">세부과목</th>':''}${colOn('type',PP)?'<th style="width:8%">유형</th>':''}<th style="width:15%">단원</th><th>세부 평가 요소</th>
       <th class="n" style="width:52px">배점</th><th class="n" style="width:64px">평균</th><th class="n" style="width:150px">정답률</th>
       <th class="n" style="width:70px">난이도</th><th class="n" style="width:150px">O / △ / X / 무응답</th></tr></thead>
     <tbody>${sb.questions.map(q=>{const s=A.qstat[qkey(sb.id,q.n)];
-      return `<tr><td class="n"><b>${dispNo(q)}</b></td>${colOn('sub',PP)?`<td>${esc(q.sub||'')}</td>`:''}<td>${esc(q.unit)||'<span class="muted">미지정</span>'}</td>
+      return `<tr><td class="n"><b>${dispNo(q)}</b></td>${colOn('sub',PP)?`<td>${esc(q.sub||'')}</td>`:''}${colOn('type',PP)?`<td>${esc(q.type||'')}</td>`:''}<td>${esc(q.unit)||'<span class="muted">미지정</span>'}</td>
         <td class="muted">${esc(q.topic)||'-'}</td><td class="n">${fmt(q.pt)}</td><td class="n">${fmt(s.mean)}</td>
         <td><div class="row" style="gap:7px;flex-wrap:nowrap"><div class="bar ${s.rate>=.7?'a':(s.rate>=.4?'b':'c')}" style="flex:1"><i style="width:${Math.round(s.rate*100)}%"></i></div>
           <span style="font-size:11.5px;font-weight:700;width:34px;text-align:right">${pct(s.rate)}</span></div></td>
@@ -1890,6 +1921,7 @@ function qTableHTML(st,PP,A,det){
   const head=`<tr><th style="width:26pt">문항</th>
     ${C('subject')?'<th style="width:38pt">과목</th>':''}
     ${C('sub')?'<th style="width:34pt">세부과목</th>':''}
+    ${C('type')?'<th style="width:38pt">유형</th>':''}
     ${C('unit')?'<th style="width:13%">평가 단원</th>':''}
     ${C('topic')?'<th>세부 평가 요소</th>':''}
     ${C('pt')?'<th style="width:26pt">배점</th>':''}
@@ -1902,6 +1934,7 @@ function qTableHTML(st,PP,A,det){
     return `<tr><td><b>${dispNo(q)}</b></td>
       ${C('subject')?`<td>${esc(sb.name)}</td>`:''}
       ${C('sub')?`<td>${esc(q.sub||'')}</td>`:''}
+      ${C('type')?`<td>${esc(q.type||'')}</td>`:''}
       ${C('unit')?`<td class="l">${esc(q.unit)||'-'}</td>`:''}
       ${C('topic')?`<td class="l">${esc(q.topic)||'-'}</td>`:''}
       ${C('pt')?`<td>${fmt(q.pt)}</td>`:''}
@@ -1912,7 +1945,7 @@ function qTableHTML(st,PP,A,det){
   };
   const sumRow=(label,qs,got,blanks)=>{
     const cnt=t=>qs.filter(x=>markKind(x.q,markOf(st,x.sb.id,x.q.n))===t).length;
-    const before=1+['subject','sub','unit','topic','pt'].filter(C).length;
+    const before=1+['subject','sub','type','unit','topic','pt'].filter(C).length;
     return `<tr style="background:#f5f7fa"><td colspan="${before+1}" style="text-align:right;font-weight:700">${label}</td>
       <td><b>${fmt(got)}</b></td>
       <td colspan="${['mean','rate','diff'].filter(C).length||1}" style="text-align:left;padding-left:6pt">
