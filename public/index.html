@@ -280,6 +280,7 @@ const UNIT_PRESET={
 };
 const SCHOOLS=['한국과학영재학교','서울과학고등학교','경기과학고등학교','대전과학고등학교','광주과학고등학교','대구과학고등학교','인천과학예술영재학교','세종과학예술영재학교','전국 영재학교 공통'];
 const MARKS={O:'O',T:'△',X:'X'};
+const BUILD='__BUILD__';                 // 배포할 때 실제 시각으로 치환됩니다
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -2145,6 +2146,7 @@ function openSync(){
       <div style="background:#fafbfc;padding:7px 12px;font-size:12px;font-weight:700;color:var(--ink2);border-bottom:1px solid var(--line2)">연결 진단</div>
       <table class="t" style="font-size:12.5px"><tbody>
         <tr><td style="width:34%">접속 주소</td><td><b>${esc(location.host||'파일로 직접 열림')}</b></td></tr>
+        <tr><td>이 화면의 버전</td><td><b>${esc(BUILD.startsWith('__')?'개발 중':BUILD)}</b> <span class="muted">— 최신인지 확인할 때 쓰세요</span></td></tr>
         <tr><td>Firebase 설정</td><td>${c.config?`<span class="pill a">있음</span> <span class="muted">${esc(c.config.projectId||'')}</span>`:'<span class="pill c">없음</span> <span class="muted">초대 링크로 접속했는지 확인하세요</span>'}</td></tr>
         <tr><td>로그인 계정</td><td>${fb.user?`<span class="pill ${okMail?'a':'c'}">${esc(fb.user.email)}</span>${okMail?'':' <span class="muted">허용 목록에 없습니다</span>'}`:'<span class="pill n">로그인 안 됨</span>'}</td></tr>
         <tr><td>시험 저장소</td><td><b>${esc(c.room||'default')}</b></td></tr>

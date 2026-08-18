@@ -46,6 +46,8 @@ echo "✓ 소스 백업 → github.com/${OWNER}/${REPO_NAME}"
 # ---------- 4. 사이트 파일 업로드 (gh-pages) ----------
 TMP=$(mktemp -d)
 cp -R public/. "$TMP"/
+STAMP=$(date "+%Y-%m-%d %H:%M")
+/usr/bin/sed -i '' "s/__BUILD__/${STAMP}/" "$TMP/index.html"
 touch "$TMP/.nojekyll"                       # _로 시작하는 파일도 그대로 서빙
 (
   cd "$TMP"
