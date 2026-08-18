@@ -291,8 +291,10 @@ function blankSubject(name){
   const units=UNIT_PRESET[name]||[];
   return {id:uid(),name,units:units.slice(),questions:Array.from({length:10},(_,i)=>({n:i+1,pt:10,unit:'',topic:'',diff:''}))};
 }
+const DEF_COLS={subject:false,sub:false,unit:true,topic:true,pt:true,mean:true,rate:true,diff:true};
 function blankPaper(name,examId){
-  return {id:uid(),examId:examId||'',name:name||'기본형',target:'',note:'',subjects:[blankSubject('물리'),blankSubject('화학')]};
+  return {id:uid(),examId:examId||'',name:name||'기본형',target:'',note:'',view:'subject',
+    cols:Object.assign({},DEF_COLS),subjects:[blankSubject('물리'),blankSubject('화학')]};
 }
 function blankExam(name){
   return {id:uid(),examName:name||'',examType:'입반테스트',examDate:new Date().toISOString().slice(0,10),
@@ -380,6 +382,9 @@ function migrate(raw){
   if(!s.papers||!s.papers.length)s.papers=[blankPaper('기본형',s.exams[0].id)];
   s.papers.forEach(p=>{
     p.id=p.id||uid();p.name=p.name||'기본형';p.subjects=p.subjects||[];
+    p.view=p.view||'subject';                                   // 'subject' 과목별 / 'flat' 문항 순서대로
+    p.cols=Object.assign({subject:false,sub:!!p.useSub,unit:true,topic:true,pt:true,mean:true,rate:true,diff:true},p.cols||{});
+    delete p.useSub;
     if(!p.examId||!s.exams.some(e=>e.id===p.examId))p.examId=s.exams[0].id;
     p.subjects.forEach(sb=>{sb.id=sb.id||uid();sb.units=sb.units||[];
       sb.questions=(sb.questions||[]).map((q,i)=>Object.assign({n:i+1,no:0,pt:10,unit:'',topic:'',sub:'',diff:''},q))});
@@ -717,7 +722,7 @@ function copyExam(){
   const e=Object.assign({},cur,{id:uid(),examName:n.trim()});
   S.exams.push(e);
   papersOf(cur).forEach(p=>S.papers.push({id:uid(),examId:e.id,name:p.name,target:p.target,note:p.note,
-    useSub:p.useSub,subjects:cloneSubjects(p.subjects)}));
+    view:p.view,cols:Object.assign({},p.cols),subjects:cloneSubjects(p.subjects)}));
   save();setExam(e.id);toast('시험지 구성까지 복제했습니다 (응시자는 복사되지 않습니다)');
 }
 function delExam(){
@@ -818,8 +823,7 @@ function paperBar(manage){
       }).join('')}
       <button class="btn sm" onclick="addPaper()">+ 새 시험지</button>
       ${manage?`<span style="flex:1"></span>
-        <label class="row" style="gap:5px;font-size:12px;color:var(--ink2);cursor:pointer;white-space:nowrap">
-          <input type="checkbox" ${cur.useSub?'checked':''} onchange="P().useSub=this.checked;save();render()"> 세부과목 칸</label>
+        <button class="btn sm" onclick="colsModal()">칼럼 설정</button>
         <button class="btn sm g" onclick="pasteTable()">표 붙여넣기</button>
         <button class="btn sm" onclick="renamePaper()">이름·정보</button>
         <button class="btn sm" onclick="copyPaper()">이 시험지 복제</button>
@@ -845,7 +849,7 @@ function cloneSubjects(list){
 function copyPaper(){
   const cur=P(),n=prompt('복제본 이름',cur.name+' 사본');
   if(!n||!n.trim())return;
-  const p={id:uid(),examId:E().id,name:n.trim(),target:cur.target,note:cur.note,useSub:cur.useSub,subjects:cloneSubjects(cur.subjects)};
+  const p={id:uid(),examId:E().id,name:n.trim(),target:cur.target,note:cur.note,view:cur.view,cols:Object.assign({},cur.cols),subjects:cloneSubjects(cur.subjects)};
   S.papers.push(p);save();setPaper(p.id);toast('시험지를 복제했습니다 (응시자는 복사되지 않습니다)');
 }
 function renamePaper(){
@@ -903,7 +907,7 @@ function doImportPaperForm(){
   if(!src)return;
   if(mode==='all'){
     if(roster(cur).length&&!confirm('현재 시험지의 문항 구성이 교체됩니다. 이미 입력한 채점 결과는 문항이 달라지면 맞지 않을 수 있습니다. 계속할까요?'))return;
-    cur.subjects=cloneSubjects(src.subjects);cur.useSub=!!src.useSub;
+    cur.subjects=cloneSubjects(src.subjects);cur.view=src.view;cur.cols=Object.assign({},src.cols);
   }else{
     cur.subjects.forEach((sb,i)=>{
       const s2=src.subjects.find(x=>x.name===sb.name)||src.subjects[i];
@@ -981,22 +985,162 @@ function doPasteTable(){
   const cur=P(), n=roster(cur).length;
   if(n&&!confirm(`「${cur.name}」의 문항 구성이 교체됩니다. 이미 입력한 응시자 ${n}명의 채점 결과는 문항이 달라지면 맞지 않을 수 있습니다. 계속할까요?`))return;
   cur.subjects=r.subjects;
-  if(r.subjects.some(sb=>sb.questions.some(q=>q.sub)))cur.useSub=true;
+  cur.cols=Object.assign({},DEF_COLS,cur.cols||{});
+  if(r.subjects.some(sb=>sb.questions.some(q=>q.sub)))cur.cols.sub=true;
+  // 문항 번호가 과목별로 뭉쳐 있지 않으면(물화 혼합) 문항 순서 보기로 전환합니다
+  const seq=r.subjects.flatMap(sb=>sb.questions.map(q=>({name:sb.name,no:dispNo(q)}))).sort((a,b)=>a.no-b.no);
+  let switches=0;for(let i=1;i<seq.length;i++)if(seq[i].name!==seq[i-1].name)switches++;
+  if(r.subjects.length>1&&switches>=r.subjects.length){cur.view='flat';cur.cols.subject=true}
   save();closeModal();render();
   toast(`${r.subjects.length}개 과목 · ${r.subjects.reduce((a,sb)=>a+sb.questions.length,0)}문항을 채웠습니다`);
 }
 
-/* ---------- ② 시험지 구성 ---------- */
+/* ---------- 문항 목록·칼럼 설정 공통 ---------- */
 const SUB_PRESET={'물리':['중등','물1','물2'],'화학':['중등','화1','화2'],'생명과학':['중등','생1','생2'],
   '지구과학':['중등','지1','지2'],'수학':['중등','수(상)','수(하)','수1','수2','미적분','기하','확통']};
 function subOptions(sb){
   const used=[...new Set(sb.questions.map(q=>(q.sub||'').trim()).filter(Boolean))];
-  const pre=SUB_PRESET[sb.name]||['중등'];
-  return [...new Set([...used,...pre])];
+  return [...new Set([...used,...(SUB_PRESET[sb.name]||['중등'])])];
 }
+/* 시험지의 모든 문항을 표기 번호 순으로 (과목이 섞인 시험지용) */
+function allQuestions(p){
+  p=p||P();const out=[];
+  p.subjects.forEach((sb,si)=>sb.questions.forEach((q,qi)=>out.push({sb,q,si,qi})));
+  return out.sort((a,b)=>(dispNo(a.q)-dispNo(b.q))||(a.si-b.si));
+}
+const COLDEF=[['subject','과목'],['sub','세부과목'],['unit','평가 단원'],['topic','세부 평가 요소'],
+  ['pt','배점'],['mean','문항 평균'],['rate','정답률'],['diff','난이도']];
+function colOn(k,p){return !!(((p||P()).cols)||DEF_COLS)[k]}
+function colsModal(){
+  const p=P();
+  modal(`<h3>칼럼 설정 — 「${esc(p.name)}」</h3><div class="mbody">
+    <p class="muted" style="margin-top:0">성적표의 <b>문항별 정오표</b>에 넣을 항목을 고릅니다. 문항 번호·정오 표시·획득 점수는 항상 인쇄됩니다.
+      여기서 켠 항목은 <b>시험지 구성 표에도</b> 함께 나타납니다.</p>
+    ${COLDEF.map(([k,label])=>`<label class="row" style="gap:8px;cursor:pointer;padding:6px 0">
+      <input type="checkbox" ${colOn(k,p)?'checked':''} onchange="P().cols['${k}']=this.checked;save();render();">
+      <span style="font-size:13px">${label}${k==='subject'?' <span class="muted">— 물리·화학이 섞인 시험지에서 유용합니다</span>':''}${k==='mean'?' <span class="muted">— 응시자 전체의 문항 평균 점수</span>':''}</span></label>`).join('')}
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)">
+      <span style="display:block;font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:6px">문항별 정오표 배치</span>
+      <label class="row" style="gap:8px;cursor:pointer;padding:5px 0"><input type="radio" name="pview" ${p.view!=='flat'?'checked':''}
+        onchange="P().view='subject';save();render()"> <span style="font-size:13px"><b>과목별로 나눠서</b> — 물리 표, 화학 표를 따로 인쇄</span></label>
+      <label class="row" style="gap:8px;cursor:pointer;padding:5px 0"><input type="radio" name="pview" ${p.view==='flat'?'checked':''}
+        onchange="P().view='flat';P().cols.subject=true;save();render()"> <span style="font-size:13px"><b>문항 번호 순서대로</b> — 한 표에 1번부터 끝까지 (과목 칼럼 자동 표시)</span></label>
+    </div>
+  </div><div class="foot"><button class="btn p" onclick="closeModal()">닫기</button></div>`);
+}
+
+/* ---------- 문항 단위 편집 (과목 이동·추가·삭제) ---------- */
+function nextNo(p){return Math.max(0,...allQuestions(p).map(x=>dispNo(x.q)))+1}
+function findQ(qid){                       // qid = "subjectId:n"
+  const p=P(),[sid,n]=qid.split(':');
+  const sb=p.subjects.find(x=>x.id===sid);
+  return {p,sb,q:sb&&sb.questions.find(x=>x.n===Number(n))};
+}
+function setQField(qid,field,val){
+  const {q}=findQ(qid);if(!q)return;
+  q[field]=field==='pt'?(Number(val)||0):(field==='no'?(parseInt(val)||0):val);
+  save();
+}
+function moveQSubject(qid,name){
+  name=(name||'').trim();if(!name)return render();
+  const {p,sb,q}=findQ(qid);if(!q||sb.name===name)return;
+  let tg=p.subjects.find(x=>x.name===name);
+  if(!tg){tg={id:uid(),name,units:[],questions:[]};p.subjects.push(tg)}
+  const oldKey=qkey(sb.id,q.n);
+  const nq=Object.assign({},q,{n:Math.max(0,...tg.questions.map(x=>x.n))+1});
+  if(!nq.no)nq.no=q.n;                                   // 표기 번호는 그대로 유지
+  tg.questions.push(nq);
+  sb.questions=sb.questions.filter(x=>x!==q);
+  roster(p).forEach(st=>{                                // 채점 결과도 함께 옮깁니다
+    const v=st.marks[oldKey];
+    if(v!==undefined){st.marks[qkey(tg.id,nq.n)]=v;delete st.marks[oldKey]}
+  });
+  p.subjects=p.subjects.filter(x=>x.questions.length);
+  save();render();
+}
+function addQuestionFlat(){
+  const p=P();
+  const last=allQuestions(p).at(-1);
+  const sb=last?last.sb:(p.subjects[0]||(p.subjects.push({id:uid(),name:'과목',units:[],questions:[]}),p.subjects[0]));
+  sb.questions.push({n:Math.max(0,...sb.questions.map(x=>x.n))+1,no:nextNo(p),
+    pt:last?last.q.pt:5,unit:last?last.q.unit:'',topic:'',sub:last?last.q.sub:'',diff:''});
+  save();render();
+}
+function delQuestion(qid){
+  const {p,sb,q}=findQ(qid);if(!q)return;
+  if(!confirm(`${dispNo(q)}번 문항(${sb.name})을 삭제할까요? 이 문항의 채점 결과도 함께 지워집니다.`))return;
+  const k=qkey(sb.id,q.n);
+  roster(p).forEach(st=>delete st.marks[k]);
+  sb.questions=sb.questions.filter(x=>x!==q);
+  p.subjects=p.subjects.filter(x=>x.questions.length);
+  if(!p.subjects.length)p.subjects=[blankSubject('과목')];
+  save();render();
+}
+function renumberFlat(){
+  const p=P();
+  if(!confirm('표시된 순서대로 문항 번호를 1번부터 다시 매길까요?'))return;
+  allQuestions(p).forEach((x,i)=>x.q.no=i+1);
+  save();render();toast('문항 번호를 다시 매겼습니다');
+}
+
+/* ---------- ② 시험지 구성 ---------- */
 function renderQuestions(){
-  const USESUB=!!P().useSub;
-  $('pane-questions').innerHTML=paperBar(true)+P().subjects.map((sb,si)=>{
+  const p=P();
+  $('pane-questions').innerHTML=paperBar(true)+
+    (p.view==='flat'?flatQuestionTable(p):subjectQuestionTables(p));
+}
+/* (가) 문항 번호 순서대로 — 과목이 섞인 시험지 */
+function flatQuestionTable(p){
+  const list=allQuestions(p), names=[...new Set(p.subjects.map(sb=>sb.name))];
+  const C=k=>colOn(k,p);
+  return `<datalist id="dlSubj">${names.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+  <datalist id="dlUnitAll">${[...new Set(p.subjects.flatMap(sb=>sb.units.concat(sb.questions.map(q=>q.unit))))].filter(Boolean).map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
+  <datalist id="dlSubAll">${[...new Set(p.subjects.flatMap(sb=>subOptions(sb)))].map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
+  <div class="card"><h3>문항 구성 <span class="pill v">문항 순서대로</span>
+    <span class="hint">과목 칸을 고치면 그 문항이 해당 과목으로 옮겨집니다 (채점 결과도 함께 이동)</span>
+    <span class="sp"></span>
+    <span class="muted">${list.length}문항 · ${fmt(grandTotal(p))}점</span>
+    <button class="btn sm" onclick="renumberFlat()">번호 다시 매기기</button>
+  </h3>
+  <div class="body tight"><table class="t">
+    <thead><tr>
+      <th class="n" style="width:56px">문항</th>
+      ${C('subject')?'<th style="width:90px">과목</th>':''}
+      ${C('sub')?'<th style="width:84px">세부과목</th>':''}
+      ${C('unit')?'<th style="width:18%">평가 단원</th>':''}
+      ${C('topic')?'<th>세부 평가 요소</th>':''}
+      ${C('diff')?'<th class="n" style="width:88px">난이도</th>':''}
+      ${C('pt')?'<th class="n" style="width:66px">배점</th>':''}
+      <th class="n" style="width:40px"></th></tr></thead>
+    <tbody>${list.map(({sb,q})=>{const id=qkey(sb.id,q.n);return `<tr>
+      <td class="n"><input type="number" min="1" value="${dispNo(q)}" style="width:52px;padding:5px 4px;text-align:center;font-weight:700"
+        onchange="setQField('${id}','no',this.value);render()"></td>
+      ${C('subject')?`<td><input type="text" list="dlSubj" value="${esc(sb.name)}" style="padding:5px 8px"
+        onchange="moveQSubject('${id}',this.value)"></td>`:''}
+      ${C('sub')?`<td><input type="text" list="dlSubAll" value="${esc(q.sub||'')}" style="padding:5px 8px"
+        oninput="setQField('${id}','sub',this.value)"></td>`:''}
+      ${C('unit')?`<td><input type="text" list="dlUnitAll" value="${esc(q.unit)}" placeholder="예) 역학" style="padding:5px 8px"
+        oninput="setQField('${id}','unit',this.value)"></td>`:''}
+      ${C('topic')?`<td><input type="text" value="${esc(q.topic)}" placeholder="예) 등가속도 운동 그래프 해석" style="padding:5px 8px"
+        oninput="setQField('${id}','topic',this.value)"></td>`:''}
+      ${C('diff')?`<td class="n"><select style="padding:5px 4px" onchange="setQField('${id}','diff',this.value)">
+        <option value="">자동</option>${DIFFS.map(d=>`<option ${q.diff===d?'selected':''}>${d}</option>`).join('')}</select></td>`:''}
+      ${C('pt')?`<td class="n"><input type="number" min="0" step="0.5" value="${q.pt}" style="width:56px;padding:5px 4px;text-align:center"
+        onchange="setQField('${id}','pt',this.value);render()"></td>`:''}
+      <td class="n"><button class="btn sm dg" style="padding:3px 7px" onclick="delQuestion('${id}')" title="문항 삭제">✕</button></td>
+    </tr>`}).join('')}</tbody>
+    <tfoot><tr><td colspan="9" style="padding:8px 10px;background:#fafbfc">
+      <button class="btn sm" onclick="addQuestionFlat()">+ 문항 추가</button>
+      <span class="muted" style="margin-left:8px">과목별 합계 — ${p.subjects.map(sb=>`<b>${esc(sb.name)}</b> ${sb.questions.length}문항 ${fmt(subjTotal(sb))}점`).join(' &nbsp;/&nbsp; ')}</span>
+    </td></tr></tfoot>
+  </table></div></div>
+  <div class="row"><button class="btn p" onclick="go('scores')">다음: 성적 입력 →</button>
+    <span class="muted">통계·평균은 <b>과목 칸 기준</b>으로 묶여 계산되고, 성적표 문항표는 지금 보시는 순서 그대로 인쇄됩니다.</span></div>`;
+}
+/* (나) 과목별로 나눠서 — 기존 방식 */
+function subjectQuestionTables(p){
+  const USESUB=colOn('sub',p), C=k=>colOn(k,p);
+  return p.subjects.map((sb,si)=>{
     const dl='dlu'+sb.id;
     return `<div class="card">
       <h3>
@@ -1009,35 +1153,36 @@ function renderQuestions(){
             onchange="setQCount(${si},this.value)"></label>
         <button class="btn sm" onclick="bulkPt(${si})">배점 일괄</button>
         <button class="btn sm" onclick="editUnits(${si})">단원 목록</button>
-        ${P().subjects.length>1?`<button class="btn sm dg" onclick="delSubject(${si})">과목 삭제</button>`:''}
+        ${p.subjects.length>1?`<button class="btn sm dg" onclick="delSubject(${si})">과목 삭제</button>`:''}
       </h3>
       <datalist id="${dl}">${sb.units.map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
       <datalist id="dls${sb.id}">${subOptions(sb).map(u=>`<option value="${esc(u)}">`).join('')}</datalist>
       <div class="body tight"><table class="t">
-        <thead><tr><th class="n" style="width:52px">문항</th><th class="n" style="width:78px">배점</th>
+        <thead><tr><th class="n" style="width:52px">문항</th>${C('pt')?'<th class="n" style="width:78px">배점</th>':''}
           ${USESUB?`<th style="width:92px">세부과목</th>`:''}
-          <th style="width:22%">평가 단원</th><th>세부 평가 요소 <span style="font-weight:400;color:var(--ink3)">— 어떤 개념·능력을 보는 문항인지</span></th>
-          <th class="n" style="width:96px">난이도</th></tr></thead>
-        <tbody>${sb.questions.map((q,qi)=>`<tr>
+          ${C('unit')?'<th style="width:22%">평가 단원</th>':''}
+          ${C('topic')?'<th>세부 평가 요소 <span style="font-weight:400;color:var(--ink3)">— 어떤 개념·능력을 보는 문항인지</span></th>':''}
+          ${C('diff')?'<th class="n" style="width:96px">난이도</th>':''}</tr></thead>
+        <tbody>${sb.questions.map((q,qi)=>{const id=qkey(sb.id,q.n);return `<tr>
           <td class="n"><b>${dispNo(q)}</b></td>
-          <td class="n"><input type="number" min="0" step="0.5" value="${q.pt}" style="width:64px;padding:5px 6px;text-align:center"
-            onchange="P().subjects[${si}].questions[${qi}].pt=Number(this.value)||0;save();render()"></td>
+          ${C('pt')?`<td class="n"><input type="number" min="0" step="0.5" value="${q.pt}" style="width:64px;padding:5px 6px;text-align:center"
+            onchange="setQField('${id}','pt',this.value);render()"></td>`:''}
           ${USESUB?`<td><input type="text" list="dls${sb.id}" value="${esc(q.sub||'')}" placeholder="예) 물1"
-            style="padding:5px 8px" oninput="P().subjects[${si}].questions[${qi}].sub=this.value;save()"></td>`:''}
-          <td><input type="text" list="${dl}" value="${esc(q.unit)}" placeholder="예) ${esc(sb.units[0]||'단원명')}"
-            style="padding:5px 8px" oninput="P().subjects[${si}].questions[${qi}].unit=this.value;save()"></td>
-          <td><input type="text" value="${esc(q.topic)}" placeholder="예) 등가속도 운동 그래프 해석"
-            style="padding:5px 8px" oninput="P().subjects[${si}].questions[${qi}].topic=this.value;save()"></td>
-          <td class="n"><select style="padding:5px 4px" onchange="P().subjects[${si}].questions[${qi}].diff=this.value;save()">
+            style="padding:5px 8px" oninput="setQField('${id}','sub',this.value)"></td>`:''}
+          ${C('unit')?`<td><input type="text" list="${dl}" value="${esc(q.unit)}" placeholder="예) ${esc(sb.units[0]||'단원명')}"
+            style="padding:5px 8px" oninput="setQField('${id}','unit',this.value)"></td>`:''}
+          ${C('topic')?`<td><input type="text" value="${esc(q.topic)}" placeholder="예) 등가속도 운동 그래프 해석"
+            style="padding:5px 8px" oninput="setQField('${id}','topic',this.value)"></td>`:''}
+          ${C('diff')?`<td class="n"><select style="padding:5px 4px" onchange="setQField('${id}','diff',this.value)">
             <option value="">자동</option>${DIFFS.map(d=>`<option ${q.diff===d?'selected':''}>${d}</option>`).join('')}
-          </select></td></tr>`).join('')}</tbody>
+          </select></td>`:''}</tr>`}).join('')}</tbody>
       </table></div>
     </div>`;
   }).join('')+`
   <div class="row">
     <button class="btn" onclick="addSubject()">+ 과목 추가</button>
     <button class="btn p" onclick="go('scores')">다음: 성적 입력 →</button>
-    <span class="muted">단원·평가 요소는 성적표의 문항별 표와 자동 코멘트에 그대로 쓰입니다.</span>
+    <span class="muted">물리·화학이 섞인 시험지는 <b>칼럼 설정 → 문항 번호 순서대로</b>로 바꾸면 한 표에서 편집할 수 있습니다.</span>
   </div>`;
 }
 function setQCount(si,v){
@@ -1553,11 +1698,11 @@ function renderAnalysis(){
       }).join('')}</tbody></table></div></div>
 
   ${PP.subjects.map(sb=>`<div class="card"><h3>${esc(sb.name)} — 문항별 분석</h3><div class="body tight">
-    <table class="t"><thead><tr><th class="n" style="width:44px">문항</th>${PP.useSub?'<th style="width:8%">세부과목</th>':''}<th style="width:15%">단원</th><th>세부 평가 요소</th>
+    <table class="t"><thead><tr><th class="n" style="width:44px">문항</th>${colOn('sub',PP)?'<th style="width:8%">세부과목</th>':''}<th style="width:15%">단원</th><th>세부 평가 요소</th>
       <th class="n" style="width:52px">배점</th><th class="n" style="width:64px">평균</th><th class="n" style="width:150px">정답률</th>
       <th class="n" style="width:70px">난이도</th><th class="n" style="width:150px">O / △ / X / 무응답</th></tr></thead>
     <tbody>${sb.questions.map(q=>{const s=A.qstat[qkey(sb.id,q.n)];
-      return `<tr><td class="n"><b>${dispNo(q)}</b></td>${PP.useSub?`<td>${esc(q.sub||'')}</td>`:''}<td>${esc(q.unit)||'<span class="muted">미지정</span>'}</td>
+      return `<tr><td class="n"><b>${dispNo(q)}</b></td>${colOn('sub',PP)?`<td>${esc(q.sub||'')}</td>`:''}<td>${esc(q.unit)||'<span class="muted">미지정</span>'}</td>
         <td class="muted">${esc(q.topic)||'-'}</td><td class="n">${fmt(q.pt)}</td><td class="n">${fmt(s.mean)}</td>
         <td><div class="row" style="gap:7px;flex-wrap:nowrap"><div class="bar ${s.rate>=.7?'a':(s.rate>=.4?'b':'c')}" style="flex:1"><i style="width:${Math.round(s.rate*100)}%"></i></div>
           <span style="font-size:11.5px;font-weight:700;width:34px;text-align:right">${pct(s.rate)}</span></div></td>
@@ -1704,23 +1849,7 @@ function reportHTML(st,A){
       <div style="font-size:6.8pt;color:#98a2b3;margin-top:2pt">※ 막대 위 회색 선은 응시자 평균 위치입니다.</div>
     </div>
 
-    ${S.cfg.showQTable?PP.subjects.map(sb=>`<div class="rsec"><div class="h">${esc(sb.name)} 문항별 정오표 <span class="tip">난이도는 응시자 정답률 기준으로 산출됩니다</span></div>
-      <table class="rt"><thead><tr><th style="width:26pt">문항</th>${PP.useSub?'<th style="width:34pt">세부과목</th>':''}<th style="width:13%">평가 단원</th><th>세부 평가 요소</th>
-        <th style="width:26pt">배점</th><th style="width:30pt">정오</th><th style="width:34pt">획득</th>
-        <th style="width:44pt">문항 평균</th><th style="width:40pt">정답률</th><th style="width:34pt">난이도</th></tr></thead>
-      <tbody>${sb.questions.map(q=>{
-        const s=A.qstat[qkey(sb.id,q.n)],m=markOf(st,sb.id,q.n),k=markKind(q,m),v=qScore(q,m);
-        return `<tr><td><b>${dispNo(q)}</b></td>${PP.useSub?`<td>${esc(q.sub||'')}</td>`:''}<td class="l">${esc(q.unit)||'-'}</td><td class="l">${esc(q.topic)||'-'}</td>
-          <td>${fmt(q.pt)}</td><td class="o${k}">${k==='N'?'·':MARKS[k]}</td><td><b>${v===null?'-':fmt(v)}</b></td>
-          <td>${fmt(s.mean)}</td><td>${pct(s.rate)}</td><td><span class="dv ${DIFFCLS[s.diff]}">${s.diff}</span></td></tr>`;
-      }).join('')}
-      <tr style="background:#f5f7fa"><td colspan="${PP.useSub?6:5}" style="text-align:right;font-weight:700">소계</td>
-        <td><b>${fmt(det[sb.id].sc.got)}</b></td><td colspan="3" style="text-align:left;padding-left:6pt">
-        O ${sb.questions.filter(q=>markKind(q,markOf(st,sb.id,q.n))==='O').length} ·
-        △ ${sb.questions.filter(q=>markKind(q,markOf(st,sb.id,q.n))==='T').length} ·
-        X ${sb.questions.filter(q=>markKind(q,markOf(st,sb.id,q.n))==='X').length} ·
-        무응답 ${det[sb.id].blanks}</td></tr>
-      </tbody></table></div>`).join(''):''}
+    ${S.cfg.showQTable?qTableHTML(st,PP,A,det):''}
 
     ${S.cfg.showAreas?`<div class="rsec"><div class="h">단원별 성취도 <span class="tip">막대: 본인 득점률 / 회색 선: 응시자 평균</span></div>
       <div class="areas">${PP.subjects.map(sb=>det[sb.id].areas.map(a=>`
@@ -1753,6 +1882,59 @@ function reportHTML(st,A){
     </div>
     ${M.stampText?`<div class="stamp">${esc(M.stampText)}</div>`:''}
   </div>`;
+}
+
+/* 성적표의 문항별 정오표 — 칼럼 설정과 배치 방식을 따릅니다 */
+function qTableHTML(st,PP,A,det){
+  const C=k=>colOn(k,PP);
+  const head=`<tr><th style="width:26pt">문항</th>
+    ${C('subject')?'<th style="width:38pt">과목</th>':''}
+    ${C('sub')?'<th style="width:34pt">세부과목</th>':''}
+    ${C('unit')?'<th style="width:13%">평가 단원</th>':''}
+    ${C('topic')?'<th>세부 평가 요소</th>':''}
+    ${C('pt')?'<th style="width:26pt">배점</th>':''}
+    <th style="width:30pt">정오</th><th style="width:34pt">획득</th>
+    ${C('mean')?'<th style="width:44pt">문항 평균</th>':''}
+    ${C('rate')?'<th style="width:40pt">정답률</th>':''}
+    ${C('diff')?'<th style="width:34pt">난이도</th>':''}</tr>`;
+  const row=(sb,q)=>{
+    const s=A.qstat[qkey(sb.id,q.n)],m=markOf(st,sb.id,q.n),k=markKind(q,m),v=qScore(q,m);
+    return `<tr><td><b>${dispNo(q)}</b></td>
+      ${C('subject')?`<td>${esc(sb.name)}</td>`:''}
+      ${C('sub')?`<td>${esc(q.sub||'')}</td>`:''}
+      ${C('unit')?`<td class="l">${esc(q.unit)||'-'}</td>`:''}
+      ${C('topic')?`<td class="l">${esc(q.topic)||'-'}</td>`:''}
+      ${C('pt')?`<td>${fmt(q.pt)}</td>`:''}
+      <td class="o${k}">${k==='N'?'·':MARKS[k]}</td><td><b>${v===null?'-':fmt(v)}</b></td>
+      ${C('mean')?`<td>${fmt(s.mean)}</td>`:''}
+      ${C('rate')?`<td>${pct(s.rate)}</td>`:''}
+      ${C('diff')?`<td><span class="dv ${DIFFCLS[s.diff]}">${s.diff}</span></td>`:''}</tr>`;
+  };
+  const sumRow=(label,qs,got,blanks)=>{
+    const cnt=t=>qs.filter(x=>markKind(x.q,markOf(st,x.sb.id,x.q.n))===t).length;
+    const before=1+['subject','sub','unit','topic','pt'].filter(C).length;
+    return `<tr style="background:#f5f7fa"><td colspan="${before+1}" style="text-align:right;font-weight:700">${label}</td>
+      <td><b>${fmt(got)}</b></td>
+      <td colspan="${['mean','rate','diff'].filter(C).length||1}" style="text-align:left;padding-left:6pt">
+        O ${cnt('O')} · △ ${cnt('T')} · X ${cnt('X')} · 무응답 ${cnt('N')}</td></tr>`;
+  };
+  if(PP.view==='flat'){
+    const list=allQuestions(PP);
+    const got=PP.subjects.reduce((a,sb)=>a+det[sb.id].sc.got,0);
+    return `<div class="rsec"><div class="h">문항별 정오표 <span class="tip">난이도는 응시자 정답률 기준으로 산출됩니다</span></div>
+      <table class="rt"><thead>${head}</thead><tbody>
+        ${list.map(x=>row(x.sb,x.q)).join('')}
+        ${sumRow('합계',list,got)}
+      </tbody></table></div>`;
+  }
+  return PP.subjects.map(sb=>{
+    const list=sb.questions.map(q=>({sb,q}));
+    return `<div class="rsec"><div class="h">${esc(sb.name)} 문항별 정오표 <span class="tip">난이도는 응시자 정답률 기준으로 산출됩니다</span></div>
+      <table class="rt"><thead>${head}</thead><tbody>
+        ${list.map(x=>row(x.sb,x.q)).join('')}
+        ${sumRow('소계',list,det[sb.id].sc.got)}
+      </tbody></table></div>`;
+  }).join('');
 }
 
 /* ---------- 코멘트 편집 ---------- */
