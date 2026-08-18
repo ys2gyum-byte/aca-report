@@ -308,7 +308,7 @@ function blankState(){
     v:3,
     brand:{academy:'',tagline:'영재학교 대비 전문',contact:'',stampText:'',
            notice:'본 성적표는 응시자 개인의 학습 진단을 위해 작성되었습니다.'},
-    cfg:{partial:.5,showDist:true,showQTable:true,showAreas:true,showRank:false,dense:false},
+    cfg:{partial:.5,showDist:true,showQTable:true,showAreas:true,showRank:false,dense:false,rpt:'both'},
     exams:[ex],
     papers:[blankPaper('기본형',ex.id)],
     students:[],
@@ -1790,6 +1790,11 @@ function renderReport(){
   el.innerHTML=paperBar(false)+`
   <div class="card"><h3>성적표 발행 <span class="hint" id="pgInfo">선택한 학생을 한 번에 PDF·이미지로 만듭니다</span><span class="sp"></span>
     <div class="row">
+      <div class="row" style="gap:0;border:1px solid var(--line);border-radius:7px;overflow:hidden">
+        ${[['both','데이터+총평'],['data','데이터만'],['comment','총평만']].map(([v,label])=>
+          `<button class="btn sm" style="border:0;border-radius:0;${(S.cfg.rpt||'both')===v?'background:var(--navy);color:#fff':''}"
+            onclick="setv('cfg.rpt','${v}');render()">${label}</button>`).join('')}
+      </div>
       <button class="btn sm" onclick="setv('cfg.dense',!S.cfg.dense);render()">${S.cfg.dense?'밀도: 조밀':'밀도: 기본'}</button>
       <button class="btn sm" onclick="editComment('${st.id}')">✎ 코멘트 편집</button>
       <button class="btn sm" onclick="printSel()">🖨 선택 ${SEL.size}명 PDF</button>
@@ -1832,6 +1837,8 @@ function reportHTML(st,A){
   const dateK=(M.examDate||'').replace(/-/g,'. ');
   const det={};PP.subjects.forEach(sb=>det[sb.id]=subjDetail(st,sb,A));
   // 시험 유형 표기 — 시험지 이름이 이미 유형을 포함하면 중복해서 쓰지 않습니다
+  const RPT=S.cfg.rpt||'both';                    // both | data | comment
+  const RD=RPT!=='comment', RC=RPT!=='data';      // 데이터 구간 / 총평 구간 포함 여부
   const multiPaper=papersOf(examOf(PP)).length>1;
   const typeLabel=!multiPaper?(M.examType||'-')
     :((M.examType&&!PP.name.includes(M.examType))?`${M.examType} · ${PP.name}`:PP.name);
@@ -1845,7 +1852,7 @@ function reportHTML(st,A){
       <div class="r"><b>${esc(st.name)}</b><br>${esc(st.school||'')} ${esc(st.grade||'')}<br>발행일 ${new Date().toISOString().slice(0,10).replace(/-/g,'. ')}</div>
     </div>
 
-    <div class="rmeta">
+    ${RD?`<div class="rmeta">
       <div><div class="k">시험 유형</div><div class="v">${esc(typeLabel)}</div></div>
       <div><div class="k">시험 일자</div><div class="v">${esc(dateK||'-')}</div></div>
       <div><div class="k">대상 학교</div><div class="v">${esc(M.school||'-')}</div></div>
@@ -1897,9 +1904,9 @@ function reportHTML(st,A){
           <span class="bg"><i style="width:${Math.round(a.rate*100)}%;background:${a.rate>=.7?'#1a7f5a':(a.rate>=.45?'#b7791f':'#b42318')}"></i>
             <span class="avg" style="left:${Math.round(a.cls*100)}%"></span></span>
           <span class="pc">${pct(a.rate)} <span style="color:#98a2b3;font-weight:600">(${a.n})</span></span></div>`).join('')).join('')}</div>
-    </div>`:''}
+    </div>`:''}`:''}
 
-    <div class="rsec"><div class="h">총평</div>
+    ${RC?`<div class="rsec"><div class="h">총평</div>
       <div class="summary">${C.lead}</div>
       <div style="height:6pt"></div>
       <div class="cbox"><div class="ch">전체 총평</div><div class="cb">
@@ -1914,7 +1921,7 @@ function reportHTML(st,A){
       <div class="cbox"><div class="ch">특이사항</div><div class="cb">
         ${C.special.map(s=>`<div class="cline"><span class="tag n">기록</span><p>${s}</p></div>`).join('')}
       </div></div>
-    </div>
+    </div>`:''}
 
     <div class="rfoot">
       <div class="l"><b>${esc(M.academy||'')}</b>${M.contact?` · ${esc(M.contact)}`:''}<br>${esc(M.notice||'')}</div>
