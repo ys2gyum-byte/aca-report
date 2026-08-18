@@ -184,7 +184,7 @@ table.rt .oX{color:var(--bad);font-weight:800}
 table.rt .oN{color:#c3c9d2;font-weight:700}
 .dv{display:inline-block;padding:.6pt 4pt;border-radius:3px;font-size:7pt;font-weight:700;white-space:nowrap}
 .d1{background:#eaf6f0;color:#1a7f5a}.d2{background:#eef6f1;color:#2c7a58}.d25{background:#eef4f8;color:#2f6690}
-.d3{background:#f3f0fa;color:#6b4fa8}.d4{background:#fdf1e5;color:#b7791f}.d5{background:#fdeceb;color:#b42318}
+.d3{background:#f3f0fa;color:#6b4fa8}.d35{background:#faf1e8;color:#9a6b32}.d4{background:#fdf1e5;color:#b7791f}.d5{background:#fdeceb;color:#b42318}
 
 .areas{display:grid;grid-template-columns:1fr 1fr;gap:4pt 14pt}
 .arow{display:grid;grid-template-columns:74pt 1fr 46pt;gap:5pt;align-items:center;font-size:8pt}
@@ -477,14 +477,14 @@ function analyze(p){
 function groupAreas(sb){
   const g={};sb.questions.forEach(q=>{const u=(q.unit||'').trim()||'기타';(g[u]=g[u]||[]).push(q)});return g;
 }
-const DIFFS=['최하','하','중하','중','상','최상'];
+const DIFFS=['최하','하','중하','중','중상','상','최상'];
 function autoDiff(rate){                 // 정답(득점)률 → 난이도
   if(rate>=.85)return '최하';if(rate>=.72)return '하';if(rate>=.60)return '중하';
-  if(rate>=.42)return '중';if(rate>=.22)return '상';return '최상';
+  if(rate>=.45)return '중';if(rate>=.33)return '중상';if(rate>=.20)return '상';return '최상';
 }
 const dispNo=q=>(q.no||q.n);             // 표기용 문항번호(붙여넣기로 들어온 통합 번호)
 function diffBand(rate){return rate>=.7?'easy':(rate>=.4?'mid':'hard')}
-const DIFFCLS={'최하':'d1','하':'d2','중하':'d25','중':'d3','상':'d4','최상':'d5'};
+const DIFFCLS={'최하':'d1','하':'d2','중하':'d25','중':'d3','중상':'d35','상':'d4','최상':'d5'};
 function rankOf(st,A){
   const list=A?.roster||roster(paperOf(st));
   const my=studentTotal(st).got;
