@@ -69,7 +69,8 @@ URL="https://${OWNER}.github.io/${REPO_NAME}/"
 # 주소가 응답하는지가 아니라, 방금 올린 내용이 실제로 나오는지 확인합니다 (보통 1~2분)
 echo -n "· 실제 반영 확인 중"
 for _ in $(seq 1 96); do
-  if curl -s -H 'Cache-Control: no-cache' "$URL" | grep -q "$STAMP"; then
+  # CDN 캐시를 확실히 우회하려면 매번 다른 쿼리를 붙여야 합니다 (요청 헤더만으로는 무시됩니다)
+  if curl -s -H 'Cache-Control: no-cache' "${URL}?v=$(date +%s)$RANDOM" | grep -q "$STAMP"; then
     echo; echo "✓ 배포 완료 (버전 ${STAMP}) → $URL"
     echo "  화면이 그대로면 브라우저에서 ⌘+Shift+R 로 새로고침하세요."
     exit 0
