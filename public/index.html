@@ -291,31 +291,52 @@ function blankSubject(name){
   const units=UNIT_PRESET[name]||[];
   return {id:uid(),name,units:units.slice(),questions:Array.from({length:10},(_,i)=>({n:i+1,pt:10,unit:'',topic:'',diff:''}))};
 }
-function blankPaper(name){
-  return {id:uid(),name:name||'기본형',target:'',note:'',subjects:[blankSubject('물리'),blankSubject('화학')]};
+function blankPaper(name,examId){
+  return {id:uid(),examId:examId||'',name:name||'기본형',target:'',note:'',subjects:[blankSubject('물리'),blankSubject('화학')]};
+}
+function blankExam(name){
+  return {id:uid(),examName:name||'',examType:'입반테스트',examDate:new Date().toISOString().slice(0,10),
+          school:'',target:'중3',duration:''};
 }
 function blankState(){
+  const ex=blankExam('');
   return {
-    v:2,
-    meta:{academy:'',tagline:'영재학교 대비 전문',school:'',examName:'',examType:'입반테스트',examDate:new Date().toISOString().slice(0,10),
-          target:'중3',contact:'',notice:'본 성적표는 응시자 개인의 학습 진단을 위해 작성되었습니다.'},
-    cfg:{partial:.5,showDist:true,showQTable:true,showAreas:true,showRank:true,stamp:''},
-    papers:[blankPaper('기본형')],
+    v:3,
+    brand:{academy:'',tagline:'영재학교 대비 전문',contact:'',stampText:'',
+           notice:'본 성적표는 응시자 개인의 학습 진단을 위해 작성되었습니다.'},
+    cfg:{partial:.5,showDist:true,showQTable:true,showAreas:true,showRank:true,dense:false},
+    exams:[ex],
+    papers:[blankPaper('기본형',ex.id)],
     students:[],
     edits:{}
   };
 }
 let S=blankState();
-/* ---- 시험지(응시 유형) 컨텍스트 ---- */
-let CURP='';
+/* ---- 시험 → 시험지 → 응시자 컨텍스트 ---- */
+let CURE='', CURP='';
+function E(){
+  let e=S.exams.find(x=>x.id===CURE);
+  if(!e){e=S.exams[0];CURE=e?e.id:''}
+  return e;
+}
+function papersOf(e){e=e||E();return S.papers.filter(p=>p.examId===e.id)}
+function examOf(p){return S.exams.find(e=>e.id===p.examId)||E()}
 function P(){
-  let p=S.papers.find(x=>x.id===CURP);
-  if(!p){p=S.papers[0];CURP=p?p.id:''}
+  const list=papersOf();
+  let p=list.find(x=>x.id===CURP);
+  if(!p){p=list[0];CURP=p?p.id:''}
   return p;
+}
+function setExam(id){
+  CURE=id;LS.set('rcard.exam',id);
+  const first=papersOf()[0];CURP=first?first.id:'';LS.set('rcard.paper',CURP);
+  render();
 }
 function setPaper(id){CURP=id;LS.set('rcard.paper',id);render()}
 function paperOf(st){return S.papers.find(p=>p.id===st.paperId)||P()}
 function roster(p){p=p||P();return S.students.filter(s=>s.paperId===p.id)}
+/* 성적표·파일명에 쓰는 정보 = 학원 공통 + 해당 시험 */
+function metaOf(ex){return Object.assign({},S.brand,ex||E())}
 let fb={on:false,db:null,user:null,unsub:null,muted:false};
 
 const LS={
@@ -333,25 +354,39 @@ function save(push=true){
 function load(){
   const raw=LS.get(KEY);
   if(raw){try{S=migrate(JSON.parse(raw))}catch(e){console.warn(e)}}
-  CURP=LS.get('rcard.paper')||'';
+  CURE=LS.get('rcard.exam')||'';CURP=LS.get('rcard.paper')||'';
 }
 function migrate(raw){
-  const legacy=raw&&Array.isArray(raw.subjects)&&!(raw.papers&&raw.papers.length);   // v1 = 시험지 하나
+  raw=raw||{};
+  const legacy1=Array.isArray(raw.subjects)&&!(raw.papers&&raw.papers.length);       // v1 = 시험지 하나
+  const legacy2=!raw.exams||!raw.exams.length;                                        // v2 = 시험 하나
   const b=blankState();
   const s=Object.assign(b,raw);
-  s.meta=Object.assign(b.meta,(raw&&raw.meta)||{});
-  s.cfg=Object.assign(b.cfg,(raw&&raw.cfg)||{});
+  s.cfg=Object.assign(b.cfg,raw.cfg||{});
   s.edits=s.edits||{};
-  if(legacy)s.papers=[{id:uid(),name:s.meta.examType||'기본형',target:s.meta.target||'',note:'',subjects:raw.subjects}];
-  delete s.subjects;
-  if(!s.papers||!s.papers.length)s.papers=[blankPaper('기본형')];
+  const m=raw.meta||{};
+  if(legacy2){                                    // v1·v2 → v3 : meta 를 학원 정보 + 시험 하나로 나눕니다
+    s.brand=Object.assign(b.brand,{academy:m.academy||'',tagline:m.tagline||b.brand.tagline,
+      contact:m.contact||'',stampText:m.stampText||'',notice:m.notice||b.brand.notice});
+    const ex={id:uid(),examName:m.examName||'',examType:m.examType||'입반테스트',
+      examDate:m.examDate||b.exams[0].examDate,school:m.school||'',target:m.target||'',duration:m.duration||''};
+    s.exams=[ex];
+    if(legacy1)s.papers=[{id:uid(),examId:ex.id,name:m.examType||'기본형',target:m.target||'',note:'',subjects:raw.subjects}];
+    (s.papers||[]).forEach(p=>p.examId=ex.id);
+  }else s.brand=Object.assign(b.brand,raw.brand||{});
+  delete s.subjects;delete s.meta;
+  if(!s.exams||!s.exams.length)s.exams=[blankExam('')];
+  s.exams.forEach(e=>{e.id=e.id||uid()});
+  if(!s.papers||!s.papers.length)s.papers=[blankPaper('기본형',s.exams[0].id)];
   s.papers.forEach(p=>{
     p.id=p.id||uid();p.name=p.name||'기본형';p.subjects=p.subjects||[];
+    if(!p.examId||!s.exams.some(e=>e.id===p.examId))p.examId=s.exams[0].id;
     p.subjects.forEach(sb=>{sb.id=sb.id||uid();sb.units=sb.units||[];
       sb.questions=(sb.questions||[]).map((q,i)=>Object.assign({n:i+1,no:0,pt:10,unit:'',topic:'',sub:'',diff:''},q))});
   });
-  (s.students||[]).forEach(st=>{st.marks=st.marks||{};if(!st.paperId)st.paperId=s.papers[0].id});
-  s.v=2;
+  (s.students||[]).forEach(st=>{st.marks=st.marks||{};
+    if(!st.paperId||!s.papers.some(p=>p.id===st.paperId))st.paperId=s.papers[0].id});
+  s.v=3;
   return s;
 }
 
@@ -618,8 +653,8 @@ function render(){
   TABS.forEach(t=>{const p=$('pane-'+t.k);p.classList.toggle('on',TAB===t.k)});
   ({exam:renderExam,questions:renderQuestions,scores:renderScores,analysis:renderAnalysis,report:renderReport})[TAB]();
   $('hint').innerHTML=hintBar();
-  $('brandName').textContent=S.meta.academy||'성적표 생성기';
-  $('brandSub').textContent=S.meta.examName||'입반테스트 분석 리포트';
+  $('brandName').textContent=S.brand.academy||'성적표 생성기';
+  $('brandSub').textContent=(E().examName||E().examType||'')+(papersOf().length>1&&P()?` · ${P().name}`:'');
 }
 function hintBar(){
   if(fbCred()||S.students.length)return '';        // 이미 연결돼 있거나 자료가 있으면 안내하지 않습니다
@@ -646,33 +681,96 @@ function chk(label,path){
   return `<label class="row" style="gap:7px;cursor:pointer;padding:6px 0"><input type="checkbox" ${v?'checked':''} onchange="setv('${path}',this.checked)" style="width:16px;height:16px"> <span style="font-size:13px">${label}</span></label>`;
 }
 
+/* ---------- 시험(회차) 선택 바 — 모든 탭 공통 ---------- */
+function examBar(manage){
+  const cur=E();
+  return `<div class="card"><div class="body" style="padding:11px 14px">
+    <div class="row">
+      <span style="font-size:11.5px;font-weight:700;color:var(--ink2);letter-spacing:0">시험</span>
+      ${S.exams.map(e=>{
+        const ps=papersOf(e), n=ps.reduce((a,p)=>a+roster(p).length,0), on=e.id===cur.id;
+        return `<button class="btn sm" style="${on?'background:var(--gold);color:#fff;border-color:var(--gold)':''}"
+          onclick="setExam('${e.id}')">${esc(e.examName||e.examType||'이름 없는 시험')}
+          <span style="font-weight:500;opacity:.75;font-size:11px">${esc((e.examDate||'').replace(/-/g,'.'))} · 시험지 ${ps.length} · ${n}명</span></button>`;
+      }).join('')}
+      <button class="btn sm" onclick="addExam()">+ 새 시험</button>
+      ${manage?`<span style="flex:1"></span>
+        <button class="btn sm" onclick="copyExam()">이 시험 복제</button>
+        ${S.exams.length>1?`<button class="btn sm dg" onclick="delExam()">삭제</button>`:''}`:''}
+    </div>
+  </div></div>`;
+}
+function addExam(){
+  const n=prompt('새 시험 이름 (예: 2026학년도 9월 입반테스트)','');
+  if(n===null)return;
+  const e=blankExam(n.trim());
+  const cur=E();
+  if(cur){e.examType=cur.examType;e.school=cur.school;e.target=cur.target;e.duration=cur.duration}
+  S.exams.push(e);
+  S.papers.push(blankPaper('기본형',e.id));
+  save();setExam(e.id);go('exam');toast('새 시험을 만들었습니다 — 시험 정보와 시험지를 설정해 주세요');
+}
+function copyExam(){
+  const cur=E();
+  const n=prompt('복제본 시험 이름',(cur.examName||'시험')+' 사본');
+  if(!n||!n.trim())return;
+  const e=Object.assign({},cur,{id:uid(),examName:n.trim()});
+  S.exams.push(e);
+  papersOf(cur).forEach(p=>S.papers.push({id:uid(),examId:e.id,name:p.name,target:p.target,note:p.note,
+    useSub:p.useSub,subjects:cloneSubjects(p.subjects)}));
+  save();setExam(e.id);toast('시험지 구성까지 복제했습니다 (응시자는 복사되지 않습니다)');
+}
+function delExam(){
+  const e=E(), ps=papersOf(e), n=ps.reduce((a,p)=>a+roster(p).length,0);
+  if(!confirm(`시험 「${e.examName||e.examType}」과 그 안의 시험지 ${ps.length}개${n?`, 응시자 ${n}명의 성적`:''}을 모두 삭제할까요?`))return;
+  const pids=new Set(ps.map(p=>p.id));
+  S.students=S.students.filter(s=>!pids.has(s.paperId));
+  S.papers=S.papers.filter(p=>p.examId!==e.id);
+  S.exams=S.exams.filter(x=>x.id!==e.id);
+  save();setExam(S.exams[0].id);toast('삭제했습니다');
+}
+function setExamField(k,v){E()[k]=v;save()}
+
 /* ---------- ① 시험 정보 ---------- */
+function efld(label,key,opt){
+  opt=opt||{};
+  const v=E()[key]??'';
+  const attrs=`oninput="setExamField('${key}',this.value)" onchange="setExamField('${key}',this.value);render()"`;
+  if(opt.list)return `<label class="f"><span>${label}</span><input type="text" list="${opt.list}" value="${esc(v)}" placeholder="${opt.ph||''}" ${attrs}></label>`;
+  return `<label class="f"><span>${label}</span><input type="${opt.type||'text'}" value="${esc(v)}" placeholder="${opt.ph||''}" ${attrs}></label>`;
+}
 function renderExam(){
-  $('pane-exam').innerHTML=`
+  const e=E(), ps=papersOf(e);
+  $('pane-exam').innerHTML=examBar(true)+`
   <datalist id="dlSchool">${SCHOOLS.map(s=>`<option value="${s}">`).join('')}</datalist>
-  <datalist id="dlType">${['입반테스트','레벨테스트','정기 진단평가','모의고사','수료평가'].map(s=>`<option value="${s}">`).join('')}</datalist>
-  <div class="card"><h3>학원 정보 <span class="hint">성적표 머리말·꼬리말에 인쇄됩니다</span></h3><div class="body">
-    <div class="grid2">
-      ${fld('학원명','meta.academy',{ph:'예) 이겸과학학원'})}
-      ${fld('브랜드 문구','meta.tagline',{ph:'예) 영재학교·과학고 대비 전문'})}
-      ${fld('연락처 / 홈페이지','meta.contact',{ph:'예) 02-000-0000 · academy.kr'})}
-      ${fld('워터마크 문구','meta.stampText',{ph:'예) CONFIDENTIAL (비워두면 표시 안 함)'})}
-    </div>
-    <div style="margin-top:12px">${fld('성적표 하단 안내 문구','meta.notice',{type:'textarea',rows:2})}</div>
-  </div></div>
+  <datalist id="dlType">${['입반테스트','레벨테스트','정기 진단평가','모의고사','수료평가','경시대회'].map(s=>`<option value="${s}">`).join('')}</datalist>
 
-  <div class="card"><h3>시험 정보</h3><div class="body">
+  <div class="card"><h3>이 시험의 정보 <span class="pill v">${esc(e.examName||'이름 없는 시험')}</span>
+    <span class="hint">시험마다 따로 저장됩니다 — 성적표 머리말에 그대로 인쇄됩니다</span></h3><div class="body">
     <div class="grid2">
-      ${fld('시험명','meta.examName',{ph:'예) 2026학년도 3월 입반테스트'})}
-      ${fld('시험 유형','meta.examType',{list:'dlType'})}
-      ${fld('시험 날짜','meta.examDate',{type:'date'})}
-      ${fld('대상 학교 / 목표','meta.school',{list:'dlSchool',ph:'예) 한국과학영재학교'})}
-      ${fld('대상 학년','meta.target',{ph:'예) 중3'})}
-      ${fld('시험 시간(분)','meta.duration',{ph:'예) 120'})}
+      ${efld('시험명','examName',{ph:'예) 2026학년도 3월 입반테스트'})}
+      ${efld('시험 유형','examType',{list:'dlType'})}
+      ${efld('시험 날짜','examDate',{type:'date'})}
+      ${efld('대상 학교 / 목표','school',{list:'dlSchool',ph:'예) 한국과학영재학교'})}
+      ${efld('대상 학년','target',{ph:'예) 중3'})}
+      ${efld('시험 시간(분)','duration',{ph:'예) 120'})}
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span class="muted">이 시험의 시험지 ${ps.length}개 — ${ps.map(p=>`<b>${esc(p.name)}</b>(${qCount(p)}문항 · ${roster(p).length}명)`).join(', ')||'없음'}</span>
     </div>
   </div></div>
 
-  <div class="card"><h3>채점 규칙 · 성적표 구성</h3><div class="body">
+  <div class="card"><h3>학원 정보 <span class="hint">모든 시험에 공통으로 쓰입니다</span></h3><div class="body">
+    <div class="grid2">
+      ${fld('학원명','brand.academy',{ph:'예) 이겸과학학원'})}
+      ${fld('브랜드 문구','brand.tagline',{ph:'예) 영재학교·과학고 대비 전문'})}
+      ${fld('연락처 / 홈페이지','brand.contact',{ph:'예) 02-000-0000 · academy.kr'})}
+      ${fld('워터마크 문구','brand.stampText',{ph:'예) CONFIDENTIAL (비워두면 표시 안 함)'})}
+    </div>
+    <div style="margin-top:12px">${fld('성적표 하단 안내 문구','brand.notice',{type:'textarea',rows:2})}</div>
+  </div></div>
+
+  <div class="card"><h3>채점 규칙 · 성적표 구성 <span class="hint">모든 시험 공통</span></h3><div class="body">
     <div class="grid2">
       <label class="f"><span>세모(△) 부분 점수 비율</span>
         <select onchange="setv('cfg.partial',Number(this.value));render()">
@@ -693,15 +791,15 @@ function renderExam(){
 
   <div class="card"><h3>자동 산출 요약</h3>
     <div class="stats">
-      <div class="stat"><div class="k">시험지 수</div><div class="v">${S.papers.length}</div></div>
-      <div class="stat"><div class="k">전체 응시 인원</div><div class="v">${S.students.length}<small>명</small></div></div>
-      <div class="stat"><div class="k">현재 시험지</div><div class="v" style="font-size:15px;padding-top:5px">${esc(P().name)}</div></div>
+      <div class="stat"><div class="k">전체 시험 수</div><div class="v">${S.exams.length}</div></div>
+      <div class="stat"><div class="k">이 시험의 시험지</div><div class="v">${ps.length}</div></div>
+      <div class="stat"><div class="k">현재 시험지</div><div class="v" style="font-size:15px;padding-top:5px">${esc(P()?P().name:'-')}</div></div>
       <div class="stat"><div class="k">문항 / 총점</div><div class="v">${qCount()}<small>문항 · ${fmt(grandTotal())}점</small></div></div>
       <div class="stat"><div class="k">이 시험지 응시</div><div class="v">${roster().length}<small>명</small></div></div>
     </div>
     <div class="body" style="border-top:1px solid var(--line2)">
       <div class="row"><button class="btn p" onclick="go('questions')">다음: 시험지 구성 →</button>
-      <span class="muted">응시 유형이 여러 가지면 ② 탭에서 <b>시험지</b>를 여러 개 만들 수 있습니다. 문항 수·배점은 시험지마다 따로 설정됩니다.</span></div>
+      <span class="muted">시험이 다르면 <b>+ 새 시험</b>으로 회차를 추가하세요. 시험마다 시험지·응시자·통계가 완전히 분리됩니다.</span></div>
     </div>
   </div>`;
 }
@@ -709,10 +807,10 @@ function renderExam(){
 /* ---------- 시험지 선택 바 (②③④⑤ 공통) ---------- */
 function paperBar(manage){
   const cur=P();
-  return `<div class="card"><div class="body" style="padding:11px 14px">
+  return examBar(false)+`<div class="card"><div class="body" style="padding:11px 14px">
     <div class="row">
       <span style="font-size:11.5px;font-weight:700;color:var(--ink2);letter-spacing:0">시험지</span>
-      ${S.papers.map(p=>{
+      ${papersOf().map(p=>{
         const on=p.id===cur.id, n=roster(p).length;
         return `<button class="btn sm" style="${on?'background:var(--navy);color:#fff;border-color:var(--navy)':''}"
           onclick="setPaper('${p.id}')">${esc(p.name)}
@@ -726,7 +824,7 @@ function paperBar(manage){
         <button class="btn sm" onclick="renamePaper()">이름·정보</button>
         <button class="btn sm" onclick="copyPaper()">이 시험지 복제</button>
         <button class="btn sm g" onclick="importPaperForm()">다른 시험지 양식 가져오기</button>
-        ${S.papers.length>1?`<button class="btn sm dg" onclick="delPaper()">삭제</button>`:''}`:''}
+        ${papersOf().length>1?`<button class="btn sm dg" onclick="delPaper()">삭제</button>`:''}`:''}
     </div>
     ${manage&&(cur.target||cur.note)?`<div class="muted" style="margin-top:7px">${esc(cur.target||'')}${cur.target&&cur.note?' · ':''}${esc(cur.note||'')}</div>`:''}
   </div></div>`;
@@ -734,7 +832,7 @@ function paperBar(manage){
 function addPaper(){
   const n=prompt('새 시험지 이름 (예: 중3 심화형, B형, 수학 단일)','');
   if(!n||!n.trim())return;
-  const p=blankPaper(n.trim());
+  const p=blankPaper(n.trim(),E().id);
   const cur=P();
   if(cur&&confirm(`현재 시험지 「${cur.name}」의 문항 구성을 그대로 가져올까요?\n\n확인 = 복사해서 시작 (배점·단원까지 그대로)\n취소 = 빈 구성으로 시작`))
     p.subjects=cloneSubjects(cur.subjects);
@@ -747,7 +845,7 @@ function cloneSubjects(list){
 function copyPaper(){
   const cur=P(),n=prompt('복제본 이름',cur.name+' 사본');
   if(!n||!n.trim())return;
-  const p={id:uid(),name:n.trim(),target:cur.target,note:cur.note,subjects:cloneSubjects(cur.subjects)};
+  const p={id:uid(),examId:E().id,name:n.trim(),target:cur.target,note:cur.note,useSub:cur.useSub,subjects:cloneSubjects(cur.subjects)};
   S.papers.push(p);save();setPaper(p.id);toast('시험지를 복제했습니다 (응시자는 복사되지 않습니다)');
 }
 function renamePaper(){
@@ -769,19 +867,20 @@ function savePaperInfo(){
 }
 function delPaper(){
   const p=P(),n=roster(p).length;
+  if(papersOf().length<2)return toast('이 시험의 마지막 시험지입니다 — 시험 자체를 지우려면 「시험 삭제」를 쓰세요');
   if(!confirm(`시험지 「${p.name}」${n?`와 이 시험지에 등록된 응시자 ${n}명의 성적`:''}을 삭제할까요?`))return;
   S.students=S.students.filter(s=>s.paperId!==p.id);
   S.papers=S.papers.filter(x=>x.id!==p.id);
-  save();setPaper(S.papers[0].id);toast('삭제했습니다');
+  save();setPaper(papersOf()[0].id);toast('삭제했습니다');
 }
 /* 다른 시험지의 구성을 현재 시험지로 가져오기 */
 function importPaperForm(){
-  const cur=P(),others=S.papers.filter(p=>p.id!==cur.id);
+  const cur=P(),others=S.papers.filter(p=>p.id!==cur.id);   // 다른 시험(회차)의 시험지도 가져올 수 있습니다
   if(!others.length)return toast('가져올 다른 시험지가 없습니다 — 먼저 시험지를 추가해 주세요');
   modal(`<h3>다른 시험지 양식 가져오기</h3><div class="mbody">
     <p class="muted" style="margin-top:0">현재 시험지 <b>「${esc(cur.name)}」</b>에 다른 시험지의 구성을 옮겨옵니다. 응시자와 채점 결과는 그대로 남습니다.</p>
     <label class="f"><span>가져올 원본 시험지</span>
-      <select id="ip_src">${others.map(p=>`<option value="${p.id}">${esc(p.name)} — ${qCount(p)}문항 · ${fmt(grandTotal(p))}점</option>`).join('')}</select></label>
+      <select id="ip_src">${others.map(p=>`<option value="${p.id}">${esc(examOf(p).examName||examOf(p).examType||'시험')} / ${esc(p.name)} — ${qCount(p)}문항 · ${fmt(grandTotal(p))}점</option>`).join('')}</select></label>
     <div style="margin-top:14px">
       <span style="display:block;font-size:11.5px;font-weight:600;color:var(--ink2);margin-bottom:4px">무엇을 가져올까요?</span>
       <label class="row" style="gap:8px;cursor:pointer;padding:7px 0;align-items:flex-start">
@@ -1237,7 +1336,7 @@ function doPasteScores(){
   let add=0,upd=0;
   list.forEach(r=>{
     let st=roster().find(s=>s.name===r.name);
-    if(!st){st={id:uid(),paperId:P().id,name:r.name,school:r.school,phone:r.phone,grade:P().target||S.meta.target||'',memo:'',marks:{}};S.students.push(st);add++}
+    if(!st){st={id:uid(),paperId:P().id,name:r.name,school:r.school,phone:r.phone,grade:P().target||E().target||'',memo:'',marks:{}};S.students.push(st);add++}
     else{upd++;if(r.school)st.school=r.school;if(r.phone)st.phone=r.phone}
     qs.forEach((c,i)=>{
       const k=qkey(c.sb.id,c.q.n), v=r.nums[i];
@@ -1264,7 +1363,7 @@ function doAddStudents(){
   lines.forEach(l=>{
     const p=l.split(/[\t,]/).map(s=>s.trim());
     if(!p[0])return;
-    S.students.push({id:uid(),paperId:P().id,name:p[0],school:p[1]||'',grade:p[2]||P().target||S.meta.target||'',memo:'',marks:{}});n++;
+    S.students.push({id:uid(),paperId:P().id,name:p[0],school:p[1]||'',grade:p[2]||P().target||E().target||'',memo:'',marks:{}});n++;
   });
   save();closeModal();render();toast(n+'명을 추가했습니다');
 }
@@ -1277,7 +1376,7 @@ function editStudent(i){
       <label class="f"><span>학년</span><input id="e_grade" value="${esc(st.grade||'')}"></label>
       <label class="f"><span>연락처 <span style="font-weight:400;color:var(--ink3)">— 내부 관리용, 성적표에는 인쇄되지 않습니다</span></span><input id="e_phone" value="${esc(st.phone||'')}"></label>
       ${S.papers.length>1?`<label class="f"><span>응시 시험지</span>
-        <select id="e_paper">${S.papers.map(p=>`<option value="${p.id}" ${p.id===st.paperId?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
+        <select id="e_paper">${S.exams.map(e=>`<optgroup label="${esc(e.examName||e.examType||'시험')}">${papersOf(e).map(p=>`<option value="${p.id}" ${p.id===st.paperId?'selected':''}>${esc(p.name)}</option>`).join('')}</optgroup>`).join('')}</select></label>`:''}
     </div>
     ${S.papers.length>1?`<p class="muted" style="margin:8px 0 0">※ 시험지를 옮기면 문항 구성이 달라지므로 <b>채점 결과는 초기화</b>됩니다.</p>`:''}
     <label class="f" style="margin-top:12px"><span>특이사항 메모 <span style="font-weight:400;color:var(--ink3)">— 성적표 '특이사항'에 그대로 실립니다</span></span>
@@ -1332,7 +1431,7 @@ async function xlsxTemplate(){
     const ws=XLSX.utils.aoa_to_sheet(rows),wb=XLSX.utils.book_new();
     ws['!cols']=head.map((h,i)=>({wch:i<4?12:5}));
     XLSX.utils.book_append_sheet(wb,ws,'성적입력');
-    XLSX.writeFile(wb,`${S.meta.examName||'입반테스트'}_${P().name}_성적입력양식.xlsx`);
+    XLSX.writeFile(wb,`${E().examName||'시험'}_${P().name}_성적입력양식.xlsx`);
     toast('엑셀 양식을 내려받았습니다 (2행 배점은 참고용, 지워도 됩니다)');
   }catch(e){toast('엑셀 기능을 불러오지 못했습니다 — 인터넷 연결을 확인해 주세요')}
 }
@@ -1424,7 +1523,7 @@ function renderAnalysis(){
   const A=analyze(PP),vals=list.map(s=>studentTotal(s).got);
   const ranked=list.map(st=>({st,T:studentTotal(st)})).sort((a,b)=>b.T.got-a.T.got);
   el.innerHTML=paperBar(false)+`
-  <div class="card"><h3>전체 통계 <span class="pill v">${esc(PP.name)}</span><span class="hint">${esc(S.meta.examName||'시험')} · ${esc(S.meta.examDate||'')} · 같은 시험지 응시자끼리 비교합니다</span></h3>
+  <div class="card"><h3>전체 통계 <span class="pill v">${esc(PP.name)}</span><span class="hint">${esc(E().examName||'시험')} · ${esc(E().examDate||'')} · 같은 시험지 응시자끼리 비교합니다</span></h3>
     <div class="stats">
       <div class="stat"><div class="k">응시 인원</div><div class="v">${A.total.n}<small>명</small></div></div>
       <div class="stat"><div class="k">총점</div><div class="v">${fmt(A.total.total)}<small>점</small></div></div>
@@ -1543,12 +1642,13 @@ function selOne(id,v){v?SEL.add(id):SEL.delete(id);render()}
 function reportHTML(st,A){
   const PP=paperOf(st);
   A=A&&A.paper&&A.paper.id===PP.id?A:analyze(PP);
-  const T=studentTotal(st),rk=rankOf(st,A),z=zOf(T.got,A.total),C=commentsFor(st,A),M=S.meta;
+  const T=studentTotal(st),rk=rankOf(st,A),z=zOf(T.got,A.total),C=commentsFor(st,A),M=metaOf(examOf(PP));
   const vals=A.roster.map(s=>studentTotal(s).got);
   const dateK=(M.examDate||'').replace(/-/g,'. ');
   const det={};PP.subjects.forEach(sb=>det[sb.id]=subjDetail(st,sb,A));
   // 시험 유형 표기 — 시험지 이름이 이미 유형을 포함하면 중복해서 쓰지 않습니다
-  const typeLabel=S.papers.length<2?(M.examType||'-')
+  const multiPaper=papersOf(examOf(PP)).length>1;
+  const typeLabel=!multiPaper?(M.examType||'-')
     :((M.examType&&!PP.name.includes(M.examType))?`${M.examType} · ${PP.name}`:PP.name);
   return `<div class="report${S.cfg.dense?' dense':''}">
     <div class="rhead">
@@ -1649,7 +1749,7 @@ function reportHTML(st,A){
 
     <div class="rfoot">
       <div class="l"><b>${esc(M.academy||'')}</b>${M.contact?` · ${esc(M.contact)}`:''}<br>${esc(M.notice||'')}</div>
-      <div style="text-align:right">${esc(M.examName||'')}${S.papers.length>1&&!(M.examName||'').includes(PP.name)?` · ${esc(PP.name)}`:''}<br>${esc(st.name)} · ${esc(dateK||'')}</div>
+      <div style="text-align:right">${esc(M.examName||'')}${multiPaper&&!(M.examName||'').includes(PP.name)?` · ${esc(PP.name)}`:''}<br>${esc(st.name)} · ${esc(dateK||'')}</div>
     </div>
     ${M.stampText?`<div class="stamp">${esc(M.stampText)}</div>`:''}
   </div>`;
@@ -1722,14 +1822,14 @@ async function pngSel(){
       await new Promise(r=>setTimeout(r,60));
       const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff',logging:false,useCORS:true,windowWidth:node.scrollWidth});
       const data=canvas.toDataURL('image/png');
-      const fname=`${(S.meta.examName||'성적표').replace(/[\\/:*?"<>|]/g,'')}_${st.name}.png`;
+      const fname=`${((examOf(paperOf(st)).examName)||'성적표').replace(/[\\/:*?"<>|]/g,'')}_${st.name}.png`;
       if(zip)zip.file(fname,data.split(',')[1],{base64:true});
       else dl(data,fname);
     }
     if(zip){
       btnMsg('압축 파일 생성 중…');
       const blob=await zip.generateAsync({type:'blob'});
-      dl(URL.createObjectURL(blob),`${(S.meta.examName||'성적표').replace(/[\\/:*?"<>|]/g,'')}_성적표_${list.length}명.zip`);
+      dl(URL.createObjectURL(blob),`${(E().examName||'성적표').replace(/[\\/:*?"<>|]/g,'')}_${P().name}_${list.length}명.zip`);
     }
     stage.remove();
     toast(list.length>1?`${list.length}명 성적표를 ZIP으로 저장했습니다`:'성적표 이미지를 저장했습니다');
@@ -1762,7 +1862,7 @@ function openData(){
 }
 function exportJSON(){
   const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});
-  dl(URL.createObjectURL(blob),`${(S.meta.examName||'성적데이터').replace(/[\\/:*?"<>|]/g,'')}.json`);
+  dl(URL.createObjectURL(blob),`${(S.brand.academy||'성적데이터')}_${new Date().toISOString().slice(0,10)}.json`);
 }
 function importJSON(inp){
   const f=inp.files[0];if(!f)return;inp.value='';
@@ -1772,10 +1872,10 @@ function importJSON(inp){
 }
 function loadSample(){
   if(roster().length&&!confirm(`현재 시험지 「${P().name}」의 학생 데이터를 덮어씁니다. 계속할까요?`))return;
-  S.meta.academy=S.meta.academy||'이겸과학학원';
-  S.meta.examName=S.meta.examName||'2026학년도 상반기 입반테스트';
-  S.meta.school=S.meta.school||'한국과학영재학교';
-  S.meta.contact=S.meta.contact||'02-000-0000';
+  S.brand.academy=S.brand.academy||'이겸과학학원';
+  S.brand.contact=S.brand.contact||'02-000-0000';
+  E().examName=E().examName||'2026학년도 상반기 입반테스트';
+  E().school=E().school||'한국과학영재학교';
   const topics={
     '물리':[['역학','등가속도 운동 해석'],['역학','운동량 보존과 충돌'],['역학','일-에너지 정리'],['역학','원운동과 구심력'],
       ['전자기','전기장과 전위'],['전자기','저항 회로 해석'],['전자기','전자기 유도'],['파동·광학','파동의 간섭'],
