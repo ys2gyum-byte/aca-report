@@ -600,7 +600,7 @@ function genComments(st,A){
       const cand=d.areas.filter(a=>!weak.includes(a)&&a.rate>0).sort((a,b)=>b.rate-a.rate)[0];   // 보완으로 지목한 단원은 강점으로 쓰지 않습니다
       o.good.push(cand
         ? `전체적으로 어려운 시험이었음에도 <b>「${esc(cand.unit)}」</b>에서는 득점 흐름이 보입니다(득점률 ${pct(cand.rate)}). 이 부분을 기준점으로 삼아 범위를 넓혀가겠습니다.`
-        : `난도가 높은 시험이었지만 끝까지 답안을 작성했습니다. 이번 진단에서 드러난 지점을 하나씩 메우면 충분히 올라갈 수 있습니다.`);
+        : `이 과목에서는 아직 강점으로 꼽을 구간이 뚜렷하지 않습니다. 출제 범위 전반에서 기초 개념을 다시 세우는 단계가 필요합니다.`);
     }
 
     // 보완
@@ -640,13 +640,12 @@ function genComments(st,A){
   if(totEasyMiss>=2&&T.rate>=.65)out.special.push(`실력 수준은 상위 구간이나 <b>기본 문항에서의 실점이 반복</b>되는 유형입니다. 이 시험에서 실수로 잃은 점수만 회복해도 순위가 눈에 띄게 올라갑니다.`);
   if(totPartial>=2&&totHardSolved===0)out.special.push(`고난도 문항에 <b>적극적으로 접근</b>하지만 마무리에서 점수를 놓칩니다. 시도 자체는 좋은 신호이므로, 완결 훈련에 집중하면 성장 폭이 큽니다.`);
   if(gap>=.25)out.special.push(`과목 간 편차가 커 <b>${lo.sb.name} 집중 보완</b>이 필요한 상태입니다. 학습 시간을 재배분할 것을 권합니다.`);
-  if(totBlank===0&&T.rate>=.5)out.special.push(`전 문항에 답안을 작성했습니다. 끝까지 시험을 운영하는 태도가 좋습니다.`);
   if(A.roster.length>4&&z>=1.5)out.special.push(`응시자 중 <b>최상위 구간</b>에 해당하는 성적으로, <b>영재학교 대비 심화 과정</b> 편성이 적합합니다.`);
   if(A.roster.length>4&&z<=-1.2)out.special.push(`현 시점의 격차를 고려할 때, 진도보다 <b>개념 기반을 다지는 과정</b>부터 시작하는 편이 장기적으로 유리합니다.`);
   const st_memo=(st.memo||'').trim();
   if(st_memo)out.special.push(esc(st_memo));
   if(!out.special.length)out.special.push(`특별히 기록할 이상 신호는 없습니다. 현재 학습 방향을 유지하며 취약 단원만 보완하면 됩니다.`);
-  if(!out.good.length)out.good.push(`끝까지 답안을 작성하며 시험을 완주했습니다. 이번 진단 결과를 기준점으로 삼아 학습 계획을 세우겠습니다.`);
+  if(!out.good.length)out.good.push(`이번 시험에서는 강점으로 제시할 만한 구간이 확인되지 않았습니다. 현재 위치를 정확히 파악한 것 자체가 출발점이며, 아래 보완 항목부터 순서대로 잡아가겠습니다.`);
   if(!out.bad.length)out.bad.push(`현 난이도에서는 뚜렷한 약점이 확인되지 않습니다. 상위 난이도에서 재진단할 것을 권합니다.`);
   return out;
 }
