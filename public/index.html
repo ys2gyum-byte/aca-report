@@ -670,8 +670,32 @@ function commentsFor(st,A){
 ============================================================ */
 const TABS=[{k:'exam',t:'① 시험 정보'},{k:'questions',t:'② 시험지 구성'},{k:'scores',t:'③ 성적 입력'},{k:'analysis',t:'④ 분석'},{k:'report',t:'⑤ 성적표'}];
 let TAB=LS.get('rcard.tab')||'exam';
-function go(k){TAB=k;LS.set('rcard.tab',k);render()}
+function go(k){TAB=k;LS.set('rcard.tab',k);KEEPSCROLL=false;render()}
+/* 다시 그릴 때 스크롤 위치와 포커스를 지켜 줍니다 (체크박스를 눌러도 화면이 튀지 않도록) */
+let KEEPSCROLL=true;
+const SCROLLERS=['gridwrap','selList','preview'];
+function focusKey(el){
+  if(!el||!el.dataset)return '';
+  if(el.dataset.k!==undefined)return `k|${el.dataset.r}|${el.dataset.k}`;
+  if(el.dataset.sel)return `s|${el.dataset.sel}`;
+  return '';
+}
 function render(){
+  const sy=KEEPSCROLL?window.scrollY:0;
+  const fk=KEEPSCROLL?focusKey(document.activeElement):'';
+  const saved={};
+  if(KEEPSCROLL)SCROLLERS.forEach(id=>{const el=$(id);if(el)saved[id]=[el.scrollTop,el.scrollLeft]});
+  renderBody();
+  SCROLLERS.forEach(id=>{const el=$(id);if(el&&saved[id]){el.scrollTop=saved[id][0];el.scrollLeft=saved[id][1]}});
+  window.scrollTo(0,sy);
+  if(fk){
+    const [kind,a,b]=fk.split('|');
+    const el=kind==='k'?document.querySelector(`[data-r="${a}"][data-k="${b}"]`):document.querySelector(`[data-sel="${a}"]`);
+    if(el)el.focus({preventScroll:true});
+  }
+  KEEPSCROLL=true;
+}
+function renderBody(){
   $('tabs').innerHTML=TABS.map(t=>{
     let n='';
     if(t.k==='questions')n=qCount();
@@ -1820,9 +1844,9 @@ function renderReport(){
             <input type="checkbox" ${allSel?'checked':''} onchange="selAll(this.checked)"> ${allSel?'전체 해제':'전체 선택'}</label>
           <span class="sp" style="flex:1"></span><span class="muted">${selCount}/${list.length}</span>
         </div>
-        <div style="max-height:62vh;overflow:auto">
+        <div id="selList" style="max-height:62vh;overflow:auto">
         ${list.map(s=>{const T=studentTotal(s);return `<div class="row" style="padding:7px 10px;border-bottom:1px solid var(--line2);gap:8px;${s.id===CUR?'background:#eef2f8':(s.dummy?'background:#fdf9ef':'')}">
-          <input type="checkbox" ${SEL.has(s.id)?'checked':''} onchange="selOne('${s.id}',this.checked)">
+          <input type="checkbox" data-sel="${s.id}" ${SEL.has(s.id)?'checked':''} onchange="selOne('${s.id}',this.checked)">
           <span style="flex:1;cursor:pointer;font-size:13px;font-weight:600" onclick="CUR='${s.id}';render()">${esc(s.name)}${s.dummy?' <span class="pill b">더미</span>':''}
             <span class="muted" style="font-weight:400;display:block;font-size:11px">${esc(s.school||'')} · ${fmt(T.got)}점</span></span>
         </div>`}).join('')}</div>
