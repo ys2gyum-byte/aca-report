@@ -1782,8 +1782,9 @@ function renderAnalysis(){
 }
 
 /* ---------- ⑤ 성적표 ---------- */
-let CUR=null, SEL=new Set();
-function openReport(id){CUR=id;SEL=new Set([id]);go('report')}
+let CUR=null, SEL=new Set(), SELP='';      // SELP: 기본 선택을 적용해 둔 시험지
+function openReport(id){const st=S.students.find(s=>s.id===id);if(st)setPaperSilently(st.paperId);CUR=id;SEL=new Set([id]);SELP=st?st.paperId:SELP;go('report')}
+function setPaperSilently(pid){const p=S.papers.find(x=>x.id===pid);if(!p)return;CURE=p.examId;CURP=p.id;LS.set('rcard.exam',CURE);LS.set('rcard.paper',CURP)}
 function renderReport(){
   const el=$('pane-report');
   const PP=P(),list=roster(PP);
@@ -1791,8 +1792,13 @@ function renderReport(){
     <div style="margin-top:14px"><button class="btn p" onclick="go('scores')">성적 입력으로 이동</button></div></div></div>`;return}
   const A=analyze(PP);
   if(!CUR||!list.find(s=>s.id===CUR))CUR=list[0].id;
-  const inPaper=[...SEL].filter(id=>list.some(s=>s.id===id));
-  if(!inPaper.length)list.filter(s=>!s.dummy).forEach(s=>SEL.add(s.id));   // 더미는 발행 대상에서 기본 제외
+  if(SELP!==PP.id){                                     // 시험지를 바꿔 들어왔을 때만 기본 선택
+    SEL=new Set(list.filter(s=>!s.dummy).map(s=>s.id));  // 더미는 발행 대상에서 기본 제외
+    SELP=PP.id;
+  }
+  const selectable=list.filter(s=>!s.dummy);
+  const selCount=list.filter(s=>SEL.has(s.id)).length;
+  const allSel=selectable.length>0&&selectable.every(s=>SEL.has(s.id));
   const st=list.find(s=>s.id===CUR);
   el.innerHTML=paperBar(false)+`
   <div class="card"><h3>성적표 발행 <span class="hint" id="pgInfo">선택한 학생을 한 번에 PDF·이미지로 만듭니다</span><span class="sp"></span>
@@ -1804,15 +1810,15 @@ function renderReport(){
       </div>
       <button class="btn sm" onclick="setv('cfg.dense',!S.cfg.dense);render()">${S.cfg.dense?'밀도: 조밀':'밀도: 기본'}</button>
       <button class="btn sm" onclick="editComment('${st.id}')">✎ 코멘트 편집</button>
-      <button class="btn sm" onclick="printSel()">🖨 선택 ${SEL.size}명 PDF</button>
-      <button class="btn sm g" onclick="pngSel()">🖼 선택 ${SEL.size}명 이미지 저장</button>
+      <button class="btn sm" onclick="printSel()" ${selCount?'':'disabled'}>🖨 선택 ${selCount}명 PDF</button>
+      <button class="btn sm g" onclick="pngSel()" ${selCount?'':'disabled'}>🖼 선택 ${selCount}명 이미지 저장</button>
     </div></h3>
     <div class="body" style="display:grid;grid-template-columns:250px 1fr;gap:16px;align-items:start">
       <div style="border:1px solid var(--line);border-radius:8px;overflow:hidden">
         <div class="row" style="padding:8px 10px;border-bottom:1px solid var(--line2);background:#fafbfc">
           <label class="row" style="gap:6px;font-size:12px;font-weight:600;cursor:pointer">
-            <input type="checkbox" ${list.every(s=>SEL.has(s.id))?'checked':''} onchange="selAll(this.checked)"> 전체 선택</label>
-          <span class="sp" style="flex:1"></span><span class="muted">${list.filter(s=>SEL.has(s.id)).length}/${list.length}</span>
+            <input type="checkbox" ${allSel?'checked':''} onchange="selAll(this.checked)"> ${allSel?'전체 해제':'전체 선택'}</label>
+          <span class="sp" style="flex:1"></span><span class="muted">${selCount}/${list.length}</span>
         </div>
         <div style="max-height:62vh;overflow:auto">
         ${list.map(s=>{const T=studentTotal(s);return `<div class="row" style="padding:7px 10px;border-bottom:1px solid var(--line2);gap:8px;${s.id===CUR?'background:#eef2f8':(s.dummy?'background:#fdf9ef':'')}">
@@ -1833,7 +1839,10 @@ function pageInfo(){
   e.innerHTML=`A4 <b>${p}쪽</b>으로 출력됩니다`
     +(p>1&&tail>0&&tail<.3?` · <span style="color:var(--warn);font-weight:600">마지막 쪽이 거의 비어 있습니다 — 밀도를 「조밀」로 바꾸면 ${p-1}쪽에 담깁니다</span>`:'');
 }
-function selAll(v){roster().forEach(s=>{if(v){if(!s.dummy)SEL.add(s.id)}else SEL.delete(s.id)});render()}
+function selAll(v){
+  roster().forEach(s=>{ if(v){ if(!s.dummy)SEL.add(s.id) } else SEL.delete(s.id) });
+  render();
+}
 function selOne(id,v){v?SEL.add(id):SEL.delete(id);render()}
 
 function reportHTML(st,A){
